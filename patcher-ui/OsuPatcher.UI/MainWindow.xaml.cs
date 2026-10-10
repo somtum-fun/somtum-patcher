@@ -30,16 +30,20 @@ namespace OsuPatcher.UI
             var osu = InjectorCore.FindRunningOsu();
             LocateLink.Visibility = Visibility.Collapsed;
 
+            // One label suffix for both states — tells the user whether pkms (the anti-cheat) will
+            // also be injected on launch. "no pkms" means they are running the bare patcher without
+            // the AC bundle; bancho will drop the session once the handshake grace runs out.
+            string acSuffix = InjectorCore.AcAvailable ? " (with pkms)" : " (no pkms)";
             switch (osu.State)
             {
                 case InjectorCore.OsuState.RunningValid:
-                    SetStatus("osu! is running — ready to inject", OkBrush);
+                    SetStatus("osu! is running — ready to inject" + acSuffix, OkBrush);
                     break;
                 case InjectorCore.OsuState.RunningInvalid:
                     SetStatus($"osu! is running but not on -devserver {InjectorCore.DevServer}.\nClose it first.", ErrorBrush);
                     break;
                 case InjectorCore.OsuState.NotRunning when KnownOsuPath() != null:
-                    SetStatus("osu! is not running — Inject will launch it", NeutralBrush);
+                    SetStatus("osu! is not running — Launch will start it" + acSuffix, NeutralBrush);
                     break;
                 default:
                     SetStatus("osu! could not be found\nStart the game or locate it", ErrorBrush);
@@ -103,7 +107,17 @@ namespace OsuPatcher.UI
             _config.OsuPath = path;
             _config.Save();
 
+            // When pkms is bundled, LaunchOsu goes through pkms_injector.exe which handles osu!
+            // startup, pkms injection AND the managed patcher injection in one native process. We
+            // then only need to wait for it to exit; it has already injected both by then.
             var proc = InjectorCore.LaunchOsu(path);
+            if (InjectorCore.AcAvailable)
+            {
+                proc.WaitForExit();
+                if (proc.ExitCode != 0)
+                    throw new Exception($"osu!somtum injector exited with code {proc.ExitCode}.");
+                return;
+            }
             var pid  = InjectorCore.WaitForInjectable(proc, token, TimeSpan.FromSeconds(60));
             InjectorCore.Inject(pid);
         }

@@ -55,15 +55,55 @@ namespace OsuPatcher.UI
 
         public static Process LaunchOsu(string osuExePath)
         {
-            var psi = new ProcessStartInfo
+            // Prefer pkms_injector.exe next to us: it starts osu!, injects pkms.dll (the anti-cheat),
+            // and then re-launches us headlessly so the managed patcher is loaded next. Both the AC
+            // and the patcher end up in one osu! process from one user action.
+            var acInjector = FindAcInjector();
+            if (acInjector != null)
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = acInjector,
+                    Arguments = $"\"{osuExePath}\" --with-patcher",
+                    WorkingDirectory = Path.GetDirectoryName(acInjector),
+                    UseShellExecute = false,
+                };
+                return Process.Start(psi) ?? throw new Exception("Failed to start the osu!somtum injector.");
+            }
+
+            // Fallback (no AC next to us): the previous patcher-only flow. Still works, but osu! runs
+            // without pkms, so bancho drops the session once the handshake grace expires.
+            var plain = new ProcessStartInfo
             {
                 FileName = osuExePath,
                 WorkingDirectory = Path.GetDirectoryName(osuExePath),
                 Arguments = $"-devserver {DevServer}",
                 UseShellExecute = false,
             };
-            return Process.Start(psi) ?? throw new Exception("Failed to start osu!.");
+            return Process.Start(plain) ?? throw new Exception("Failed to start osu!.");
         }
+
+        /// <summary>pkms_injector.exe sitting next to this exe, or null when the AC isn't bundled.</summary>
+        public static string FindAcInjector()
+        {
+            try
+            {
+                var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                var candidate = Path.Combine(baseDir, "pkms_injector.exe");
+                if (File.Exists(candidate)) return candidate;
+                // The combined bundle ships it as osu-ac-injector.exe (one friendlier filename for the folder).
+                candidate = Path.Combine(baseDir, "osu-ac-injector.exe");
+                if (File.Exists(candidate)) return candidate;
+            }
+            catch
+            {
+                // ignore; we only use this to decide between AC+patcher and patcher-only launches
+            }
+            return null;
+        }
+
+        /// <summary>True when the AC injector is bundled: used by the UI to show "with pkms" status.</summary>
+        public static bool AcAvailable => FindAcInjector() != null;
 
         public static uint WaitForInjectable(Process started, CancellationToken token, TimeSpan timeout)
         {

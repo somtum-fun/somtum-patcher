@@ -103,7 +103,7 @@
             <!-- Inject button -->
             <Button Grid.Row="3" x:Name="InjectButton"
                     Style="{StaticResource ActionButton}"
-                    Content="Inject" Height="56" Margin="60,0,60,28"
+                    Content="Launch" Height="56" Margin="60,0,60,28"
                     Click="OnInject"/>
         </Grid>
     </Border>
