@@ -21,6 +21,13 @@ namespace OsuPatcher.Runtime.Helpers
             if (signature == null || signature.Length == 0 || OsuModule == null)
                 return null;
 
+            // Fold nops out of the pattern — the 20260924+ obfuscator sprinkles stray Nops into
+            // method bodies (notably after Stloc.N and before Br.S), and some older patterns were
+            // written with explicit Nops to match a specific build's debug IL. Nops are stack-
+            // neutral and semantically meaningless, so matching ignores them on both sides.
+            var sig = signature.Where(s => s != OpCodes.Nop).ToArray();
+            if (sig.Length == 0) return null;
+
             return OsuModule.GetTypes()
                 .SelectMany(t => t.GetRuntimeMethods())
                 .FirstOrDefault(m =>
@@ -33,13 +40,19 @@ namespace OsuPatcher.Runtime.Helpers
 
                     foreach (var op in opcodes)
                     {
-                        if (op == signature[idx])
+                        if (op == OpCodes.Nop) continue;
+
+                        if (op == sig[idx])
                         {
                             idx++;
-                            if (idx == signature.Length) return true;
+                            if (idx == sig.Length) return true;
                         }
                         else
-                            idx = 0;
+                        {
+                            // Rewind to the start — if this opcode is itself the first of the
+                            // pattern, kick off a new potential match from here, otherwise reset.
+                            idx = (op == sig[0]) ? 1 : 0;
+                        }
                     }
 
                     return false;
@@ -53,6 +66,9 @@ namespace OsuPatcher.Runtime.Helpers
         {
             if (signature == null || signature.Length == 0 || OsuModule == null)
                 return null;
+
+            var sig = signature.Where(s => s != OpCodes.Nop).ToArray();
+            if (sig.Length == 0) return null;
 
             return OsuModule.GetTypes()
                 .SelectMany(t => t.GetConstructors(
@@ -70,13 +86,17 @@ namespace OsuPatcher.Runtime.Helpers
 
                     foreach (var op in opcodes)
                     {
-                        if (op == signature[idx])
+                        if (op == OpCodes.Nop) continue;
+
+                        if (op == sig[idx])
                         {
                             idx++;
-                            if (idx == signature.Length) return true;
+                            if (idx == sig.Length) return true;
                         }
                         else
-                            idx = 0;
+                        {
+                            idx = (op == sig[0]) ? 1 : 0;
+                        }
                     }
 
                     return false;

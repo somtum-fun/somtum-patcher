@@ -48,6 +48,34 @@ cp patcher/OsuPatcher.Runtime/bin/Release/OsuPatcher.Runtime.dll patcher-ui/OsuP
 cp patcher/OsuPatcher.Runtime/bin/Release/0Harmony.dll           patcher-ui/OsuPatcher.UI/Payload/
 cp akatsuki-pp-ffi/target/i686-pc-windows-gnu/release/akatsuki_pp_ffi.dll patcher-ui/OsuPatcher.UI/Payload/
 
+# --- Phase gate -------------------------------------------------------------
+# The UI csproj embeds pkms.dll + pkms_injector.exe (native anti-cheat) too, so the UI
+# project only builds once those files have been written into Payload\ as well. The
+# orchestrator (pad-krapow-mu-sap-injector/scripts/build-bundle.sh) runs this script
+# with --prepare, builds pkms, drops the files, and re-runs with --ui-only. A plain
+# `build.sh` without args still finishes the UI build when invoked by a dev who has
+# a working pkms set staged locally.
+PHASE="${1:-full}"
+if [ "$PHASE" = "--prepare" ]; then
+    echo
+    echo "Payload prepared. Now build pkms and drop pkms.dll + pkms_injector.exe into"
+    echo "  patcher-ui/OsuPatcher.UI/Payload/"
+    echo "then re-run: $0 --ui-only"
+    exit 0
+fi
+
+if [ "$PHASE" != "--ui-only" ] && [ "$PHASE" != "full" ]; then
+    echo "unknown phase: $PHASE (expected --prepare | --ui-only | <empty>)" >&2
+    exit 1
+fi
+
+for native in pkms.dll pkms_injector.exe; do
+    [ -f "patcher-ui/OsuPatcher.UI/Payload/$native" ] || {
+        echo "error: patcher-ui/OsuPatcher.UI/Payload/$native missing — build pkms first (see pad-krapow-mu-sap-injector/scripts/build-bundle.sh), or run '$0 --prepare' and continue from there." >&2
+        exit 1
+    }
+done
+
 # --- 4. UI (single patcher-ui.exe) -------------------------------------------
 "$DOTNET" build patcher-ui/OsuPatcher.UI/OsuPatcher.UI.csproj -c Release
 

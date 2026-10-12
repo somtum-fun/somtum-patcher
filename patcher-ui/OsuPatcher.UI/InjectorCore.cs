@@ -10,7 +10,7 @@ namespace OsuPatcher.UI
 {
     internal static class InjectorCore
     {
-        public const string DevServer = "somtum.fun";
+        public const string DevServer = "blueskychan.dev";
 
         private const string RuntimeDllName = "OsuPatcher.Runtime.dll";
         private const string NativePpDllName = "akatsuki_pp_ffi.dll";
@@ -136,8 +136,30 @@ namespace OsuPatcher.UI
 
         /// <summary>True when the AC injector is bundled AND usable: on Wine we never run
         /// pkms_injector.exe (it deadlocks), so AcAvailable is false there and MainWindow falls
-        /// through to the HoLLy Inject path (which attaches pkms in-process via the Runtime).</summary>
+        /// through to the HoLLy Inject path (which attaches pkms in-process via the Runtime).
+        /// This gates the launch BRANCH (native injector vs HoLLy); it does NOT describe whether
+        /// pkms will attach — pkms attaches in both branches. Use <see cref="HasPkms"/> for that.</summary>
         public static bool AcAvailable => !IsWine() && FindAcInjector() != null;
+
+        /// <summary>True when pkms.dll is reachable (either as a sibling file picked up by the
+        /// native injector, OR as an embedded resource the Runtime's LoadPkmsIfPresent() will
+        /// LoadLibrary in-process). The standalone single-exe artifact has it embedded, so this
+        /// is true there even though <see cref="AcAvailable"/> is false. UI labels use this.</summary>
+        public static bool HasPkms
+        {
+            get
+            {
+                try
+                {
+                    if (File.Exists(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "pkms.dll")))
+                        return true;
+                    var asm = System.Reflection.Assembly.GetExecutingAssembly();
+                    using (var s = asm.GetManifestResourceStream("pkms.dll"))
+                        return s != null;
+                }
+                catch { return false; }
+            }
+        }
 
         public static uint WaitForInjectable(Process started, CancellationToken token, TimeSpan timeout)
         {

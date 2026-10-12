@@ -300,6 +300,12 @@ namespace OsuPatcher.Runtime.Constants
 			Mods mods3 = mods;
 			if ((mods3 & mods2) <= Mods.None)
          */
+        // Pattern reflects the OBFUSCATED (live) IL, not de4dot's cleanup output: de4dot runs a
+        // dead-code pass that inlines the mods constant and collapses two local stores, so a
+        // pattern derived from the cleaned exe would miss on the real osu!.exe. Always derive
+        // patterns against osu!.exe directly, not osu!-cleaned.exe. Shape here: two back-to-back
+        // `(mods & relaxBit) > 0 || (mods & autopilotBit) > 0` checks the save path early-returns
+        // on.
         public static readonly OpCode[] PatchAutoSaveRelaxScores_Target = new[]
         {
             OpCodes.Ldarg_0,
@@ -342,6 +348,14 @@ namespace OsuPatcher.Runtime.Constants
          */
         public static readonly OpCode[] PatchRelaxComboBreak_Target = new[]
         {
+            // Extended from 9 to 15 opcodes to make this pattern uniquely identifying across
+            // reflection enumeration orders. The original 9-op shape (ldarg + ldfld + callvirt
+            // + ldc.i4.s + ble.s + the Ldsfld/Brtrue_S quartet) matched the right method in
+            // file order but reflection's GetRuntimeMethods didn't always visit types in the
+            // same order, so FindMethodBySignature sometimes picked a same-shape method
+            // elsewhere, the transpiler mangled the wrong IL, and the game crashed. The tail
+            // added here (Ldc_I4 → Call → Ldc_I4_0 → Ldc_I4_1 → Ldc_I4_7 → Call) is specific
+            // to the hit-processing call this patch is actually targeting.
             OpCodes.Ldarg_0,
             OpCodes.Ldfld,
             OpCodes.Callvirt,
@@ -350,7 +364,13 @@ namespace OsuPatcher.Runtime.Constants
             OpCodes.Ldsfld,
             OpCodes.Brtrue_S,
             OpCodes.Ldsfld,
-            OpCodes.Brtrue_S
+            OpCodes.Brtrue_S,
+            OpCodes.Ldc_I4,
+            OpCodes.Call,
+            OpCodes.Ldc_I4_0,
+            OpCodes.Ldc_I4_1,
+            OpCodes.Ldc_I4_7,
+            OpCodes.Call
         };
 
         public static readonly OpCode[] PlayerInitialize_Target = new[]
@@ -511,5 +531,33 @@ namespace OsuPatcher.Runtime.Constants
             OpCodes.Ldarg_0,
             OpCodes.Ldarg_0
         };
+
+        #region PkmsUsername
+
+        // BanchoClient.connect — the inner block that writes {Username, Password} to the
+        // login StreamWriter. Anchoring on the surrounding `set_NewLine → WriteLine(username)
+        // → WriteLine(password.Get(Hashed))` sequence; both Bindable<string>::op_Implicit and
+        // OsuPassword::Get are single callvirt frames that make this a very distinctive 13-
+        // opcode window. If stable's login flow changes shape (e.g. the WriteLine order
+        // flips, or a wrapper swallows the StreamWriter), re-dump BanchoClient.connect and
+        // adjust. Opcode-only — operand validation happens in the transpiler.
+        public static readonly OpCode[] PkmsUsername_Target = new[]
+        {
+            OpCodes.Ldloc_0,       // streamWriter (for set_NewLine)
+            OpCodes.Ldc_I4,        // obfuscator string id
+            OpCodes.Call,          // A::A(int32) -> string
+            OpCodes.Callvirt,      // TextWriter.set_NewLine
+            OpCodes.Ldloc_0,       // streamWriter
+            OpCodes.Ldsfld,        // ConfigManager.sUsername  (Bindable<string>)
+            OpCodes.Call,          // Bindable`1<string>::op_Implicit -> string
+            OpCodes.Callvirt,      // TextWriter.WriteLine(string)
+            OpCodes.Ldloc_0,       // streamWriter
+            OpCodes.Ldsfld,        // ConfigManager.Password (OsuPassword)
+            OpCodes.Ldc_I4_0,      // Representation.Hashed = 0
+            OpCodes.Callvirt,      // OsuPassword.Get
+            OpCodes.Callvirt,      // TextWriter.WriteLine(string)
+        };
+
+        #endregion
     }
 }

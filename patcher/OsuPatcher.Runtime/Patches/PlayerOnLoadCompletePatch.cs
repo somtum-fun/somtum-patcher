@@ -23,20 +23,12 @@ namespace OsuPatcher.Runtime.Patches
         [HarmonyTargetMethod]
         private static MethodBase Target() => ILPatch.FindMethodBySignature(Patterns.PlayerOnLoadComplete_Target);
 
-        [HarmonyTranspiler]
-        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
-        {
-            var codes = new List<CodeInstruction>(instructions);
-
-            codes.Insert(24, new CodeInstruction(OpCodes.Ldarg_0));
-            codes.Insert(25, new CodeInstruction(
-                OpCodes.Call,
-                typeof(PlayerOnLoadCompletePatch)
-                .GetMethod(nameof(OnComplete), BindingFlags.Public | BindingFlags.Static)
-            ));
-
-            return codes.AsEnumerable();
-        }
+        // Same simplification as PlayerUpdatePatch — use a Postfix so there's no IL layout to
+        // track. OnComplete does one-shot setup (adds the pp sprite + the Performance resolver)
+        // and relies on its own null-checks for every reflection lookup, so running it as a
+        // postfix after the method's internal state is settled is safer than injecting mid-method.
+        [HarmonyPostfix]
+        private static void Postfix(object __instance) => OnComplete(__instance);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void OnComplete(object playerInstance)

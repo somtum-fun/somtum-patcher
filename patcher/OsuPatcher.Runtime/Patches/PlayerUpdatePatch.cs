@@ -23,35 +23,14 @@ namespace OsuPatcher.Runtime.Patches
         private static MethodBase Target()
             => ILPatch.FindMethodBySignature(Patterns.PlayerUpdate_Target);
 
-        [HarmonyTranspiler]
-        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator il)
-        {
-            var codes = new List<CodeInstruction>(instructions);
-
-            var br = codes[775];
-
-            // handle brfalse to the end of the if. we want to insert our code before that
-            if (br.operand is Label oldLabel)
-            {
-                var targetIndex = codes.FindIndex(c => c.labels.Contains(oldLabel));
-                if (targetIndex != -1 && targetIndex + 2 < codes.Count)
-                {
-                    var newLabel = il.DefineLabel();
-                    codes[targetIndex + 1].labels.Add(newLabel);
-
-                    br.operand = newLabel;
-                }
-            }
-
-            codes.Insert(776, new CodeInstruction(OpCodes.Ldarg_0));
-            codes.Insert(777, new CodeInstruction(
-                OpCodes.Call,
-                typeof(PlayerUpdatePatch)
-                .GetMethod(nameof(OnUpdate), BindingFlags.Public | BindingFlags.Static)
-            ));
-
-            return codes.AsEnumerable();
-        }
+        // Harmony Postfix instead of a Transpiler: the old implementation inserted Ldarg_0 + Call
+        // at a hardcoded codes[775] anchor, which was derived empirically from one obfuscator
+        // pass and shifts the moment osu! moves. A Postfix runs after the method returns, with
+        // the game's own state already committed, so there's no IL layout to track. OnUpdate's
+        // internal guards (null-score / replay-watcher / config disabled) make the extra calls
+        // on early-return ticks harmless.
+        [HarmonyPostfix]
+        private static void Postfix(object __instance) => OnUpdate(__instance);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void OnUpdate(object playerInstance)

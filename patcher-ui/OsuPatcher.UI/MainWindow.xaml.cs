@@ -31,9 +31,12 @@ namespace OsuPatcher.UI
             LocateLink.Visibility = Visibility.Collapsed;
 
             // One label suffix for both states — tells the user whether pkms (the anti-cheat) will
-            // also be injected on launch. "no pkms" means they are running the bare patcher without
-            // the AC bundle; bancho will drop the session once the handshake grace runs out.
-            string acSuffix = InjectorCore.AcAvailable ? " (with pkms)" : " (no pkms)";
+            // also be injected on launch. "no pkms" means the patcher was built without the AC
+            // embedded; bancho will drop the session once the handshake grace runs out. The
+            // standalone single-exe artifact has pkms embedded and loads it via the Runtime even
+            // when AcAvailable is false (no sibling pkms_injector.exe), so HasPkms (not
+            // AcAvailable) is the right signal for this label.
+            string acSuffix = InjectorCore.HasPkms ? " (with pkms)" : " (no pkms)";
             switch (osu.State)
             {
                 case InjectorCore.OsuState.RunningValid:
@@ -52,8 +55,48 @@ namespace OsuPatcher.UI
             }
         }
 
-        private string KnownOsuPath() =>
-            !string.IsNullOrEmpty(_config.OsuPath) && File.Exists(_config.OsuPath) ? _config.OsuPath : null;
+        private string KnownOsuPath()
+        {
+            if (!string.IsNullOrEmpty(_config.OsuPath) && File.Exists(_config.OsuPath))
+                return _config.OsuPath;
+            // Players who installed osu! on a different drive (e.g. E:\osu!) never get picked up
+            // by the default-location lookup, but osu!'s installer registers its path under
+            // HKEY_CLASSES_ROOT\osu!\shell\open\command as `"<drive>:\path\osu!.exe" "%1"`.
+            // Reading that gives us the install path on whichever drive the player chose; we
+            // persist it to _config so the next launch doesn't re-scan the registry.
+            var registered = ResolveOsuPathFromRegistry();
+            if (registered != null && File.Exists(registered))
+            {
+                _config.OsuPath = registered;
+                _config.Save();
+                return registered;
+            }
+            return null;
+        }
+
+        private static string ResolveOsuPathFromRegistry()
+        {
+            try
+            {
+                using (var key = Microsoft.Win32.Registry.ClassesRoot.OpenSubKey(@"osu!\shell\open\command"))
+                {
+                    if (key?.GetValue(null) is string cmd && !string.IsNullOrWhiteSpace(cmd))
+                    {
+                        // Format is `"C:\path\osu!.exe" "%1"` — pick the quoted first token.
+                        if (cmd.Length > 0 && cmd[0] == '"')
+                        {
+                            int end = cmd.IndexOf('"', 1);
+                            if (end > 1) return cmd.Substring(1, end - 1);
+                        }
+                        // Fallback: first whitespace-delimited token.
+                        int sp = cmd.IndexOf(' ');
+                        return sp > 0 ? cmd.Substring(0, sp) : cmd;
+                    }
+                }
+            }
+            catch { /* registry not accessible; fall back to the config entry */ }
+            return null;
+        }
 
         private async void OnInject(object sender, RoutedEventArgs e)
         {

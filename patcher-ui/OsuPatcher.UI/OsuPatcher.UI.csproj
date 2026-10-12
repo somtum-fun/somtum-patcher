@@ -52,6 +52,19 @@
     <EmbeddedResource Include="Payload\akatsuki_pp_ffi.dll">
       <LogicalName>akatsuki_pp_ffi.dll</LogicalName>
     </EmbeddedResource>
+    <!-- Native AC + injector. Embedded so one somtum-patcher.exe download covers the whole
+         stack: on launch App.OnStartup extracts them next to the running exe (per-user temp
+         if next-to-exe isn't writable). Build-time contract: $(ProjectDir)Payload\pkms.dll
+         and $(ProjectDir)Payload\pkms_injector.exe must exist by the time this project
+         compiles — the orchestrator (build-bundle.sh) builds pkms first and copies both
+         into Payload\ before this project is built. If either file is missing the resource
+         include fails loudly, which is the correct behaviour (don't ship a half-exe). -->
+    <EmbeddedResource Include="Payload\pkms.dll">
+      <LogicalName>pkms.dll</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Payload\pkms_injector.exe">
+      <LogicalName>pkms_injector.exe</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <!-- The dependency DLLs are embedded, so drop the copy-local copies to keep a single exe -->
