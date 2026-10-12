@@ -1,5 +1,7 @@
 using System;
+using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using HarmonyLib;
 using OsuPatcher.Runtime.Utils;
 using OsuPatcher.Runtime.Wrappers;
@@ -12,11 +14,39 @@ namespace OsuPatcher.Runtime
         private const string DefaultServer = "somtum.fun";
 
         internal static string Server { get; private set; } = DefaultServer;
-        
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr LoadLibraryExW(string path, IntPtr hReservedNull, uint flags);
+        private const uint LOAD_WITH_ALTERED_SEARCH_PATH = 0x00000008;
+
+        // Loads pkms.dll in-process. patcher-ui extracts it next to our DLL in Config.Directory;
+        // on Wine (and on Windows when pkms_injector.exe timed out) this is how the AC reaches
+        // osu! — a plain in-process LoadLibrary, no cross-process CreateRemoteThread. Silent if
+        // pkms.dll is missing (dev build without AC) or already loaded (re-inject).
+        private static void LoadPkmsIfPresent()
+        {
+            try
+            {
+                var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "osu-patcher");
+                var dll = Path.Combine(dir, "pkms.dll");
+                if (!File.Exists(dll))
+                    return;
+                var h = LoadLibraryExW(dll, IntPtr.Zero, LOAD_WITH_ALTERED_SEARCH_PATH);
+                Logger.logFile(h == IntPtr.Zero
+                    ? $"[pkms] LoadLibraryExW failed (err={Marshal.GetLastWin32Error()})"
+                    : "[pkms] loaded");
+            }
+            catch (Exception ex)
+            {
+                Logger.logFile($"[pkms] load error: {ex.Message}");
+            }
+        }
+
         public static int Initialize(string st)
         {
             try
             {
+                LoadPkmsIfPresent();
                 Server = ResolveServer(st);
 
                 // Per-type patching: one broken patch (shifted IL from a new obfuscation pass, a

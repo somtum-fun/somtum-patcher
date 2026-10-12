@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Management;
+using System.Runtime.InteropServices;
 using System.Threading;
 using HoLLy.ManagedInjector;
 
@@ -53,12 +54,34 @@ namespace OsuPatcher.UI
             return new OsuProcess { State = OsuState.NotRunning };
         }
 
+        [DllImport("kernel32.dll", CharSet = CharSet.Ansi, ExactSpelling = true, SetLastError = true)]
+        private static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr GetModuleHandle(string lpModuleName);
+
+        // True when running under Wine. Native CreateRemoteThread → LoadLibraryW (pkms_injector's
+        // mechanism) deadlocks against osu!'s loader on Wine, so on Wine we skip pkms_injector.exe
+        // entirely and let HoLLy inject the managed patcher runtime, which in turn LoadLibrary's
+        // pkms.dll in-process. Both AC and patcher still end up in osu! from one user action, just
+        // via one code path instead of two.
+        public static bool IsWine()
+        {
+            try
+            {
+                var h = GetModuleHandle("ntdll.dll");
+                return h != IntPtr.Zero && GetProcAddress(h, "wine_get_version") != IntPtr.Zero;
+            }
+            catch { return false; }
+        }
+
         public static Process LaunchOsu(string osuExePath)
         {
             // Prefer pkms_injector.exe next to us: it starts osu!, injects pkms.dll (the anti-cheat),
             // and then re-launches us headlessly so the managed patcher is loaded next. Both the AC
-            // and the patcher end up in one osu! process from one user action.
-            var acInjector = FindAcInjector();
+            // and the patcher end up in one osu! process from one user action. Not on Wine though —
+            // CreateRemoteThread(LoadLibraryW) deadlocks there, so Wine goes straight to the plain
+            // launch path and relies on OsuPatcher.Runtime.Main.LoadPkmsIfPresent() to attach pkms.
+            var acInjector = IsWine() ? null : FindAcInjector();
             if (acInjector != null)
             {
                 var psi = new ProcessStartInfo
@@ -141,7 +164,11 @@ namespace OsuPatcher.UI
             System.IO.Directory.CreateDirectory(dir);
 
             var asm = System.Reflection.Assembly.GetExecutingAssembly();
-            foreach (var name in new[] { RuntimeDllName, "0Harmony.dll", NativePpDllName })
+            // pkms.dll is extracted here too so OsuPatcher.Runtime.Main.LoadPkmsIfPresent()
+            // can pick it up by path. On the pkms_injector.exe path this write is harmless —
+            // pkms is already in osu! from the injector run, and the Runtime's LoadLibrary of
+            // an already-loaded DLL is a no-op (returns the existing handle).
+            foreach (var name in new[] { RuntimeDllName, "0Harmony.dll", NativePpDllName, "pkms.dll" })
             {
                 using (var stream = asm.GetManifestResourceStream(name))
                 {
