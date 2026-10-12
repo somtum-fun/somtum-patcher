@@ -10,7 +10,7 @@ namespace OsuPatcher.UI
 {
     internal static class InjectorCore
     {
-        public const string DevServer = "blueskychan.dev";
+        public const string DevServer = "somtum.fun";
 
         private const string RuntimeDllName = "OsuPatcher.Runtime.dll";
         private const string NativePpDllName = "akatsuki_pp_ffi.dll";
@@ -76,6 +76,7 @@ namespace OsuPatcher.UI
 
         public static Process LaunchOsu(string osuExePath)
         {
+            RemoveRequireUpdateMarker(osuExePath);
             // Prefer pkms_injector.exe next to us: it starts osu!, injects pkms.dll (the anti-cheat),
             // and then re-launches us headlessly so the managed patcher is loaded next. Both the AC
             // and the patcher end up in one osu! process from one user action. Not on Wine though —
@@ -105,6 +106,7 @@ namespace OsuPatcher.UI
         /// </summary>
         public static Process LaunchOsuPlain(string osuExePath)
         {
+            RemoveRequireUpdateMarker(osuExePath);
             var plain = new ProcessStartInfo
             {
                 FileName = osuExePath,
@@ -113,6 +115,33 @@ namespace OsuPatcher.UI
                 UseShellExecute = false,
             };
             return Process.Start(plain) ?? throw new Exception("Failed to start osu!.");
+        }
+
+        /// <summary>
+        /// osu!stable drops a <c>.require_update</c> marker next to osu!.exe when it wants ppy's
+        /// updater to run on the next launch (triggered by a corrupt file, a changed file hash, or
+        /// a stream switch like cuttingedge→stable). Running that against our prepared install
+        /// would clobber the patched files and pull an unexpected build from ppy's CDN — possibly
+        /// one we don't support, possibly without pkms.dll next to osu!.exe. We delete the marker
+        /// before every launch so osu! stays on the files we laid down. Safe to call multiple
+        /// times on the same path and from either the native-injector or the HoLLy branch.
+        /// </summary>
+        private static void RemoveRequireUpdateMarker(string osuExePath)
+        {
+            try
+            {
+                var osuDir = Path.GetDirectoryName(osuExePath);
+                if (string.IsNullOrEmpty(osuDir)) return;
+                var marker = Path.Combine(osuDir, ".require_update");
+                if (File.Exists(marker))
+                    File.Delete(marker);
+            }
+            catch
+            {
+                // Non-fatal: if the marker is locked (antivirus scanning, osu! currently open) we
+                // press on — osu!'s updater won't take exclusive action while the file is still in
+                // use, and we'll catch it on the next clean launch.
+            }
         }
 
         /// <summary>pkms_injector.exe sitting next to this exe, or null when the AC isn't bundled.</summary>
