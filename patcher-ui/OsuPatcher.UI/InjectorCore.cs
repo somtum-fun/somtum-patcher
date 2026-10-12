@@ -94,8 +94,17 @@ namespace OsuPatcher.UI
                 return Process.Start(psi) ?? throw new Exception("Failed to start the osu!somtum injector.");
             }
 
-            // Fallback (no AC next to us): the previous patcher-only flow. Still works, but osu! runs
-            // without pkms, so bancho drops the session once the handshake grace expires.
+            return LaunchOsuPlain(osuExePath);
+        }
+
+        /// <summary>
+        /// Launches osu! with just -devserver, no cross-process native injector. pkms gets attached
+        /// in-process by OsuPatcher.Runtime.Main.LoadPkmsIfPresent() after HoLLy injects the runtime.
+        /// Used by the Wine path (both from LaunchOsu's own IsWine branch and from App.xaml.cs's
+        /// --launch-and-inject headless entry).
+        /// </summary>
+        public static Process LaunchOsuPlain(string osuExePath)
+        {
             var plain = new ProcessStartInfo
             {
                 FileName = osuExePath,
