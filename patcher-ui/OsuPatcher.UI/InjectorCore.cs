@@ -134,8 +134,10 @@ namespace OsuPatcher.UI
             return null;
         }
 
-        /// <summary>True when the AC injector is bundled: used by the UI to show "with pkms" status.</summary>
-        public static bool AcAvailable => FindAcInjector() != null;
+        /// <summary>True when the AC injector is bundled AND usable: on Wine we never run
+        /// pkms_injector.exe (it deadlocks), so AcAvailable is false there and MainWindow falls
+        /// through to the HoLLy Inject path (which attaches pkms in-process via the Runtime).</summary>
+        public static bool AcAvailable => !IsWine() && FindAcInjector() != null;
 
         public static uint WaitForInjectable(Process started, CancellationToken token, TimeSpan timeout)
         {
