@@ -11,8 +11,7 @@ namespace OsuPatcher.Runtime.Utils
             string color = "Red",
             int timer = 15000)
         {
-            using (var writer = new System.IO.StreamWriter("Logs/patcher.log", true))
-                writer.WriteLine(message);
+            logFile(message);
 
             NotificationManager.ShowMessage(
                 message,
@@ -21,6 +20,14 @@ namespace OsuPatcher.Runtime.Utils
                     .GetValue(null),
                 timer
             );
+        }
+
+        /// <summary>File-only log — no in-game toast. Use for diagnostic noise (patch failures,
+        /// exception stack traces) players shouldn't see.</summary>
+        public static void logFile(string message)
+        {
+            using (var writer = new System.IO.StreamWriter("Logs/patcher.log", true))
+                writer.WriteLine(message);
         }
     }
 }

@@ -19,17 +19,48 @@ namespace OsuPatcher.Runtime
             {
                 Server = ResolveServer(st);
 
-                // now patchall
-                Harmony.PatchAll(typeof(Main).Assembly);
+                // Per-type patching: one broken patch (shifted IL from a new obfuscation pass, a
+                // removed method, a changed signature) throws SEHException inside Harmony's
+                // UpdateWrapper and would, under PatchAll, abort the whole batch — the player loses
+                // every patch. Iterating [HarmonyPatch] types individually with a try/catch means
+                // the working patches still install and the broken ones get logged for the next
+                // rebase pass. Partial RX/AP beats a crashed game.
+                int installed = 0, skipped = 0;
+                foreach (var type in typeof(Main).Assembly.GetTypes())
+                {
+                    if (type.GetCustomAttributes(typeof(HarmonyPatch), inherit: true).Length == 0)
+                        continue;
+                    try
+                    {
+                        new PatchClassProcessor(Harmony, type).Patch();
+                        installed++;
+                    }
+                    catch (Exception patchEx)
+                    {
+                        skipped++;
+                        // File-only: these are developer-level diagnostics (obfuscation shifted the
+                        // IL, our Harmony pattern needs a rebase). Players don't need the stack
+                        // trace in a toast — they get a friendly summary below instead.
+                        Logger.logFile($"[patcher] skipped {type.Name}: {patchEx.GetType().Name}: {patchEx.Message}");
+                    }
+                }
+                Logger.logFile($"[patcher] installed {installed} patch(es), skipped {skipped}");
 
-                NotificationManager.ShowMessageMassive("somtum patcher is now initialized!",
-                    5000,
+                NotificationManager.ShowMessageMassive(
+                    skipped == 0
+                        ? "somtum patcher is now initialized!"
+                        : "Some patcher features aren't compatible with this osu! build. "
+                          + "Try: launch normal osu! first, then relaunch with the Launcher; "
+                          + "or switch osu! to the cuttingedge build. "
+                          + "Still not working? Ask us on Discord.",
+                    skipped == 0 ? 5000 : 12000,
                     NotificationManager.NotificationType.Warning
                 );
             }
             catch (Exception e)
             {
-                Logger.log(e.ToString());
+                // File-only: full exception trace is noise for players.
+                Logger.logFile(e.ToString());
             }
 
             return 0;
