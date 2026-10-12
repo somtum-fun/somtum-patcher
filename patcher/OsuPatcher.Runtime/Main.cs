@@ -17,12 +17,21 @@ namespace OsuPatcher.Runtime
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern IntPtr LoadLibraryExW(string path, IntPtr hReservedNull, uint flags);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool SetEnvironmentVariableW(string name, string value);
         private const uint LOAD_WITH_ALTERED_SEARCH_PATH = 0x00000008;
+        private const string PkmsLaunchTokenEnv = "PKMS_LAUNCH_TOKEN";
 
         // Loads pkms.dll in-process. patcher-ui extracts it next to our DLL in Config.Directory;
         // on Wine (and on Windows when pkms_injector.exe timed out) this is how the AC reaches
         // osu! — a plain in-process LoadLibrary, no cross-process CreateRemoteThread. Silent if
         // pkms.dll is missing (dev build without AC) or already loaded (re-inject).
+        //
+        // Launch token: pkms refuses to run without PKMS_LAUNCH_TOKEN set in the environment
+        // (pkms_injector.exe seeds it before CreateProcessW on the native path). We generate the
+        // same shape of random hex here and set it on osu!'s process env block before loading
+        // the DLL so verify_launch_token() in net.c passes. pkms clears the var itself right
+        // after, so children osu! spawns don't inherit it.
         private static void LoadPkmsIfPresent()
         {
             try
@@ -31,6 +40,14 @@ namespace OsuPatcher.Runtime
                 var dll = Path.Combine(dir, "pkms.dll");
                 if (!File.Exists(dll))
                     return;
+
+                var bytes = new byte[32];
+                using (var rng = new System.Security.Cryptography.RNGCryptoServiceProvider())
+                    rng.GetBytes(bytes);
+                var hex = new System.Text.StringBuilder(bytes.Length * 2);
+                foreach (var b in bytes) hex.Append(b.ToString("x2"));
+                SetEnvironmentVariableW(PkmsLaunchTokenEnv, hex.ToString());
+
                 var h = LoadLibraryExW(dll, IntPtr.Zero, LOAD_WITH_ALTERED_SEARCH_PATH);
                 Logger.logFile(h == IntPtr.Zero
                     ? $"[pkms] LoadLibraryExW failed (err={Marshal.GetLastWin32Error()})"
