@@ -19,6 +19,8 @@ namespace OsuPatcher.Runtime
         private static extern IntPtr LoadLibraryExW(string path, IntPtr hReservedNull, uint flags);
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern bool SetEnvironmentVariableW(string name, string value);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr GetModuleHandleW(string lpModuleName);
         private const uint LOAD_WITH_ALTERED_SEARCH_PATH = 0x00000008;
         private const string PkmsLaunchTokenEnv = "PKMS_LAUNCH_TOKEN";
 
@@ -40,6 +42,14 @@ namespace OsuPatcher.Runtime
                 var dll = Path.Combine(dir, "pkms.dll");
                 if (!File.Exists(dll))
                     return;
+
+                // Already in osu! (the Somtum Launcher's or pkms_injector.exe's copy, from another
+                // folder): a second copy would run beside it, each reporting the other as foreign.
+                if (GetModuleHandleW("pkms.dll") != IntPtr.Zero)
+                {
+                    Logger.logFile("[pkms] already loaded");
+                    return;
+                }
 
                 var bytes = new byte[32];
                 using (var rng = new System.Security.Cryptography.RNGCryptoServiceProvider())
