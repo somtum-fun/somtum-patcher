@@ -11,7 +11,14 @@ namespace OsuPatcher.Runtime
     public class Main
     {
         private static readonly Harmony Harmony = new Harmony("osu_patcher.ano");
+#if SOMTUM_DEV
+        private const string DefaultServer = "blueskychan.dev";
+#else
         private const string DefaultServer = "somtum.fun";
+#endif
+
+        /// <summary>The server this build is for (the credit line in the options).</summary>
+        internal const string DefaultServerName = DefaultServer;
 
         internal static string Server { get; private set; } = DefaultServer;
 

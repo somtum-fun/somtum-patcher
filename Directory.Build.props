@@ -1,0 +1,7 @@
+<Project>
+  <!-- `SomtumServer=dev` (a property, or the environment variable for every build at once): the Somtum Patcher
+       for the development server, blueskychan.dev, instead of somtum.fun (SOMTUM_DEV in InjectorCore and the runtime). -->
+  <PropertyGroup Condition="'$(SomtumServer)' == 'dev'">
+    <DefineConstants>$(DefineConstants);SOMTUM_DEV</DefineConstants>
+  </PropertyGroup>
+</Project>

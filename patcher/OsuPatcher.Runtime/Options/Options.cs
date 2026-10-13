@@ -52,7 +52,7 @@ namespace OsuPatcher.Runtime.Options
             Section section = new Section("Patches");
             section.SetChildren(optionsChildren);
 
-            Section credit = new Section("somtum patcher v1.2 — somtum.fun");
+            Section credit = new Section("somtum patcher v1.2 — " + Main.DefaultServerName);
 
             Array sectionChildren = Element.CreateArray(section, credit);
             

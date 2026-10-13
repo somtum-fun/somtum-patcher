@@ -10,7 +10,11 @@ namespace OsuPatcher.UI
 {
     internal static class InjectorCore
     {
+#if SOMTUM_DEV
+        public const string DevServer = "blueskychan.dev";
+#else
         public const string DevServer = "somtum.fun";
+#endif
 
         private const string RuntimeDllName = "OsuPatcher.Runtime.dll";
         private const string NativePpDllName = "akatsuki_pp_ffi.dll";
