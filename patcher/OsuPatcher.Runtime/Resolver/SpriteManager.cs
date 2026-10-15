@@ -14,11 +14,12 @@ namespace OsuPatcher.Runtime.Resolver
         private static List<FieldInfo> _spriteManagerFields;
         private static FieldInfo _targetSpriteManagerField;
 
-        public static void AddToWidescreen(object playerInstance, object drawableInstance)
+        /// <param name="playerType">osu!'s Player class (not the instance's type: a ReplayWatcher or
+        /// PlayerVs wouldn't show Player's private sprite managers).</param>
+        public static void AddToWidescreen(object playerInstance, Type playerType, object drawableInstance)
         {
             if (_spriteManagerWidescreenField == null)
             {
-                var playerType = playerInstance.GetType();
                 var managerCandidates = playerType
                     .GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                     .Where(f => !f.FieldType.IsPrimitive && !f.FieldType.IsEnum && f.FieldType != typeof(string))

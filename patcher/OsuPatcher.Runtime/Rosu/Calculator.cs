@@ -1,145 +1,90 @@
-using OsuPatcher.Runtime.Rosu.FFI;
 using System;
 using System.IO;
-using System.Linq;
-using System.Reflection;
 using System.Runtime.InteropServices;
 
 namespace OsuPatcher.Runtime.Rosu
 {
-    public sealed class Calculator
+    /// <summary>
+    /// One play's beatmap, parsed once by the native pp library (akatsuki_pp_ffi.dll: ppy's pp via
+    /// rosu-pp, akatsuki's formula for osu! Relax). Every native call catches its own panics and
+    /// returns 0, so a bad map or input can't take osu! down.
+    /// </summary>
+    public sealed class Calculator : IDisposable
     {
         private const string NativeLibraryFileName = "akatsuki_pp_ffi.dll";
+        private const uint LOAD_WITH_ALTERED_SEARCH_PATH = 0x00000008;
 
         [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern IntPtr LoadLibrary(string fileName);
-
-        [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern bool SetDllDirectory(string pathName);
+        private static extern IntPtr LoadLibraryExW(string fileName, IntPtr reserved, uint flags);
 
         [DllImport("akatsuki_pp_ffi", CallingConvention = CallingConvention.Cdecl)]
-        private static extern CalculateResult calculate_akatsuki_from_bytes(
-            Sliceu8 beatmap_bytes,
-            uint mode,
-            uint mods,
-            uint max_combo,
-            float accuracy,
-            uint miss_count,
-            Optionu32 passed_objects);
+        private static extern IntPtr pp_map_new(byte[] bytes, UIntPtr len);
 
-        private static MethodInfo _getBeatmapStream;
-        private readonly object _beatmap;
-        private readonly object _mods;
+        [DllImport("akatsuki_pp_ffi", CallingConvention = CallingConvention.Cdecl)]
+        private static extern void pp_map_free(IntPtr map);
 
-        private byte[] _cachedBeatmap;
-        private GCHandle _pinnedHandle;
-        private Sliceu8 _beatmapSlice;
-        private bool _disposed;
+        [DllImport("akatsuki_pp_ffi", CallingConvention = CallingConvention.Cdecl)]
+        private static extern CalculateResult pp_calculate(IntPtr map, ref PpScore score);
 
-        static Calculator()
+        private static readonly bool NativeLoaded = LoadNativeLibrary();
+
+        private readonly object _lock = new object();
+        private IntPtr _map;
+
+        /// <summary>Parses the .osu file; <see cref="IsValid"/> is false if it couldn't be.</summary>
+        public Calculator(Stream beatmap)
         {
-            LoadNativeLibraryFromAssemblyDirectory();
-        }
-
-        public Calculator(object beatmap, MethodInfo getBeatmapStream, object mods)
-        {
-            _beatmap = beatmap;
-            _getBeatmapStream = getBeatmapStream;
-            _mods = mods;
-            InitializeBeatmapData();
-        }
-
-        private static void LoadNativeLibraryFromAssemblyDirectory()
-        {
-            string assemblyDirectory = Path.GetDirectoryName(typeof(Calculator).Assembly.Location);
-            if (string.IsNullOrEmpty(assemblyDirectory))
+            if (!NativeLoaded || beatmap == null)
                 return;
 
-            string nativePath = Path.Combine(assemblyDirectory, NativeLibraryFileName);
-            if (!File.Exists(nativePath))
-                return;
-
-            SetDllDirectory(assemblyDirectory);
-
-            if (LoadLibrary(nativePath) == IntPtr.Zero)
-                throw new InvalidOperationException(
-                    $"failed to load {nativePath}: Win32 error {Marshal.GetLastWin32Error()}");
-        }
-
-        private void InitializeBeatmapData()
-        {
-            if (_beatmap == null || _getBeatmapStream == null)
-                return;
-
-            using (Stream stream = (Stream)_getBeatmapStream.Invoke(_beatmap, null))
+            byte[] bytes;
+            using (var memory = new MemoryStream())
             {
-                if (stream == null)
-                    return;
-
-                if (stream.CanSeek)
-                {
-                    _cachedBeatmap = new byte[stream.Length];
-                    stream.Read(_cachedBeatmap, 0, (int)stream.Length);
-                }
-                else
-                {
-                    using (MemoryStream memoryStream = new MemoryStream())
-                    {
-                        stream.CopyTo(memoryStream);
-                        _cachedBeatmap = memoryStream.ToArray();
-                    }
-                }
+                beatmap.CopyTo(memory);
+                bytes = memory.ToArray();
             }
-
-            if (_cachedBeatmap != null && _cachedBeatmap.Length != 0)
-            {
-                _pinnedHandle = GCHandle.Alloc(_cachedBeatmap, GCHandleType.Pinned);
-                _beatmapSlice = new Sliceu8(_pinnedHandle.AddrOfPinnedObject(), (ulong)((long)_cachedBeatmap.Length));
-            }
+            if (bytes.Length != 0)
+                _map = pp_map_new(bytes, (UIntPtr)bytes.Length);
         }
 
-        public double CalculateScore(object score, float accuracy, int legacyScore, int maxCombo, int playMode)
+        public bool IsValid => _map != IntPtr.Zero;
+
+        /// <summary>
+        /// The library lives next to this DLL. Loaded by full path (no SetDllDirectory, which would
+        /// change the DLL search path for the whole osu! process); the [DllImport]s then bind to
+        /// the already loaded module by name.
+        /// </summary>
+        private static bool LoadNativeLibrary()
         {
-            if (_disposed)
-                throw new ObjectDisposedException("Calculator");
+            string dir = Path.GetDirectoryName(typeof(Calculator).Assembly.Location);
+            if (string.IsNullOrEmpty(dir))
+                return false;
+            string path = Path.Combine(dir, NativeLibraryFileName);
+            return File.Exists(path) && LoadLibraryExW(path, IntPtr.Zero, LOAD_WITH_ALTERED_SEARCH_PATH) != IntPtr.Zero;
+        }
 
-            if (_cachedBeatmap == null || _cachedBeatmap.Length == 0)
-                return 0.0;
-
-            var ushortFields = score.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                .Where(f => f.FieldType == typeof(ushort)).ToArray();
-
-            if (ushortFields.Length <= 5)
-                return 0.0;
-
-            ushort count300 = (ushort)ushortFields[0].GetValue(score);
-            ushort count100 = (ushort)ushortFields[1].GetValue(score);
-            ushort count50 = (ushort)ushortFields[2].GetValue(score);
-            ushort countMiss = (ushort)ushortFields[5].GetValue(score);
-            uint passedObjectCount = (uint)(count300 + count100 + count50 + countMiss);
-
-            Optionu32 passedObjects = Optionu32.FromNullable(new uint?(passedObjectCount));
-            uint mods = (uint)Convert.ToInt32(_mods);
-
-            return calculate_akatsuki_from_bytes(
-                _beatmapSlice,
-                (uint)playMode,
-                mods,
-                (uint)maxCombo,
-                accuracy,
-                (uint)Convert.ToInt32(countMiss),
-                passedObjects).pp;
+        /// <summary>pp for the score so far (0 if anything is off). Thread-safe; never throws for bad input.</summary>
+        public double Calculate(PpScore score)
+        {
+            lock (_lock)
+            {
+                if (_map == IntPtr.Zero)
+                    return 0.0;
+                double pp = pp_calculate(_map, ref score).pp;
+                return double.IsNaN(pp) || double.IsInfinity(pp) || pp < 0.0 ? 0.0 : pp;
+            }
         }
 
         public void Dispose()
         {
-            if (_disposed)
-                return;
-
-            if (_pinnedHandle.IsAllocated)
-                _pinnedHandle.Free();
-
-            _disposed = true;
+            lock (_lock)
+            {
+                if (_map != IntPtr.Zero)
+                {
+                    pp_map_free(_map);
+                    _map = IntPtr.Zero;
+                }
+            }
             GC.SuppressFinalize(this);
         }
 
@@ -149,7 +94,27 @@ namespace OsuPatcher.Runtime.Rosu
         }
     }
 
-    [Serializable]
+    /// <summary>One score in osu!stable's terms; mirrors PpScore in akatsuki-pp-ffi/src/lib.rs.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PpScore
+    {
+        public uint Mode;
+        public uint Mods;
+        public uint MaxCombo;
+        public uint N300;
+        public uint N100;
+        public uint N50;
+        public uint NGeki;
+        public uint NKatu;
+        public uint Misses;
+        /// <summary>Objects judged so far; uint.MaxValue = the whole map.</summary>
+        public uint PassedObjects;
+        /// <summary>osu!stable's total score, 0 = unknown. Left 0: the website's pp doesn't use it.</summary>
+        public uint LegacyTotalScore;
+        /// <summary>0..100, only for osu! Relax.</summary>
+        public float Accuracy;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     public struct CalculateResult
     {

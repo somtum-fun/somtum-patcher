@@ -14,7 +14,15 @@ akatsuki-pp-1-0-1 = { package = "akatsuki-pp", git = "https://github.com/osuAkat
 # ppy's official pp algorithm (community Rust port, kept in sync with lazer/osu-performance).
 # Vanilla osu!/taiko/catch/mania plays route through this so the in-game counter matches the
 # website and lazer's own counter.
-rosu-pp = { version = "1.1", default-features = false, features = ["sync"] }
+# Pinned to rosu-pp's `pp-update` branch: ppy's 2026 Q2 SR & PP release (osu!standard parity with
+# ppy.osu.Game.Rulesets.* 2026.730.0, what TomYum and osu-queue-score-statistics use). Unreleased on
+# crates.io as of 2026-10-15. Vendored in vendor/rosu-pp with one fix (see vendor/rosu-pp/SOMTUM.md);
+# move to the crates.io release once it carries the update.
+rosu-pp = { path = "vendor/rosu-pp", default-features = false, features = ["sync"] }
+
+[profile.release]
+# The FFI functions catch panics (lib.rs `guarded`); that needs unwinding, not abort.
+panic = "unwind"
 
 [dev-dependencies]
 interoptopus_backend_csharp = "0.14.14"

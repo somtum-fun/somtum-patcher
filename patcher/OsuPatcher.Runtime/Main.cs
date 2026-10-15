@@ -109,6 +109,7 @@ namespace OsuPatcher.Runtime
                     }
                 }
                 Logger.logFile($"[patcher] installed {installed} patch(es), skipped {skipped}");
+                SignalReady();
 
                 NotificationManager.ShowMessageMassive(
                     skipped == 0
@@ -128,6 +129,29 @@ namespace OsuPatcher.Runtime
             }
 
             return 0;
+        }
+
+        // Held for the whole session: the named event lives as long as one handle to it is open.
+        private static System.Threading.EventWaitHandle _ready;
+
+        /// <summary>
+        /// Tells the anti-cheat our patches are in, so it can take its osu!.exe baselines now: it
+        /// waits for this (the patcher's managed DLLs load from bytes and never show up in osu!'s
+        /// module list, where it used to look for them). Either side may create the event first.
+        /// </summary>
+        private static void SignalReady()
+        {
+            try
+            {
+                var name = "Local\\SomtumPatcherReady-" + System.Diagnostics.Process.GetCurrentProcess().Id;
+                _ready = new System.Threading.EventWaitHandle(false, System.Threading.EventResetMode.ManualReset, name);
+                _ready.Set();
+                Logger.logFile("[patcher] ready signalled");
+            }
+            catch (Exception e)
+            {
+                Logger.logFile($"[patcher] ready signal failed: {e.Message}");
+            }
         }
 
         private static string ResolveServer(string injectedArgument)
