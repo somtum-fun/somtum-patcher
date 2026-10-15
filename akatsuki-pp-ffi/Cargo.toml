@@ -9,7 +9,12 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 interoptopus = "0.14.14"
+# Akatsuki's fork, for the osu! Relax formula (osu_2019). Only used when mode == 0 && mods & RX.
 akatsuki-pp-1-0-1 = { package = "akatsuki-pp", git = "https://github.com/osuAkatsuki/akatsuki-pp-rs", rev = "b96019f50aa7d09bcbde60016481a69df04315e4" }
+# ppy's official pp algorithm (community Rust port, kept in sync with lazer/osu-performance).
+# Vanilla osu!/taiko/catch/mania plays route through this so the in-game counter matches the
+# website and lazer's own counter.
+rosu-pp = { version = "1.1", default-features = false, features = ["sync"] }
 
 [dev-dependencies]
 interoptopus_backend_csharp = "0.14.14"

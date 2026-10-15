@@ -17,6 +17,10 @@ def init_lib(path):
 
 
 def calculate_akatsuki_from_bytes(beatmap_bytes: Sliceu8 | ctypes.Array[ctypes.c_uint8], mode: int, mods: int, max_combo: int, accuracy: float, miss_count: int, passed_objects: Optionu32) -> CalculatePerformanceResult:
+    """ The patcher's in-game pp counter. Routes vanilla plays through ppy's rosu-pp (what the website
+ uses) and osu! Relax plays through akatsuki's osu_2019 (what the stable Relax leaderboard uses).
+ Function name kept for ABI compatibility with existing patcher-ui builds; the dispatch inside is
+ the only behaviour change."""
     if hasattr(beatmap_bytes, "_length_") and getattr(beatmap_bytes, "_type_", "") == ctypes.c_uint8:
         beatmap_bytes = Sliceu8(data=ctypes.cast(beatmap_bytes, ctypes.POINTER(ctypes.c_uint8)), len=len(beatmap_bytes))
 

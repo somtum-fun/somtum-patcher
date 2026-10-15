@@ -38,6 +38,10 @@ typedef struct sliceu8
     } sliceu8;
 
 
+/// The patcher's in-game pp counter. Routes vanilla plays through ppy's rosu-pp (what the website
+/// uses) and osu! Relax plays through akatsuki's osu_2019 (what the stable Relax leaderboard uses).
+/// Function name kept for ABI compatibility with existing patcher-ui builds; the dispatch inside is
+/// the only behaviour change.
 calculateperformanceresult calculate_akatsuki_from_bytes(sliceu8 beatmap_bytes, uint32_t mode, uint32_t mods, uint32_t max_combo, float accuracy, uint32_t miss_count, optionu32 passed_objects);
 
 
