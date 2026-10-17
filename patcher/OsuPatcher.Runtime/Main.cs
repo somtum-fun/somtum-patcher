@@ -45,7 +45,14 @@ namespace OsuPatcher.Runtime
         {
             try
             {
-                var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "osu-patcher");
+                // Must match patcher-ui's Config.Directory: the dev build keeps its own folder so a
+                // dev pkms.dll is never picked up by the production patcher, or the reverse.
+                var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+#if SOMTUM_DEV
+                    "osu-patcher-dev");
+#else
+                    "osu-patcher");
+#endif
                 var dll = Path.Combine(dir, "pkms.dll");
                 if (!File.Exists(dll))
                     return;
