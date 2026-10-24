@@ -97,37 +97,130 @@ namespace OsuPatcher.Runtime
                 // the working patches still install and the broken ones get logged for the next
                 // rebase pass. Partial RX/AP beats a crashed game.
                 int installed = 0, skipped = 0;
+                // Names of patch classes that didn't install, shown later as per-feature toasts
+                // so the player knows which thing is off instead of a vague "some features broke".
+                var skippedFeatures = new System.Collections.Generic.List<string>();
                 foreach (var type in typeof(Main).Assembly.GetTypes())
                 {
                     if (type.GetCustomAttributes(typeof(HarmonyPatch), inherit: true).Length == 0)
                         continue;
+
+                    // Snapshot what WE have patched before this class attempts its install, so a
+                    // throw mid-install can be rolled back cleanly. PatchClassProcessor.Patch()
+                    // isn't guaranteed to be atomic across multiple [HarmonyPatch] members in one
+                    // class — if one succeeds and the next throws, the first is left attached.
+                    // Each of our classes currently targets a single method, so this is mostly
+                    // belt-and-braces; new patches that cover more than one target get rollback
+                    // for free. GetPatchedMethods() returns ALL harmony-patched methods across all
+                    // instances in-process; we filter to ours via GetPatchInfo().Owners afterwards.
+                    var beforeOurs = new System.Collections.Generic.HashSet<System.Reflection.MethodBase>(
+                        Harmony.GetAllPatchedMethods().Where(m =>
+                        {
+                            var info = Harmony.GetPatchInfo(m);
+                            return info != null && info.Owners.Contains(Harmony.Id);
+                        }));
+
                     try
                     {
                         new PatchClassProcessor(Harmony, type).Patch();
                         installed++;
+
+                        // Attach a runtime safety finalizer to every target this class patched: if
+                        // a Prefix/Postfix/original throws at runtime (e.g. a field reference we
+                        // thought was stable actually drifted under a new obfuscation pass), the
+                        // finalizer logs it, auto-unpatches THAT single method, and swallows the
+                        // exception so osu! doesn't crash. Scope is per-method, not per-id: a
+                        // false-positive from one patch doesn't disable the others, and a fresh
+                        // launch re-installs the full set.
+                        //
+                        // Finalizers run AFTER prefix/original/postfix, so __exception may be from
+                        // our code OR from osu!'s own method bubbling through. We can't tell them
+                        // apart. We still unpatch: if the fault was ours, osu! runs clean next
+                        // call; if it was osu!'s, we lose one feature until next launch while osu!
+                        // continues to throw the same exception at the caller — net result is one
+                        // disabled patch, which is strictly better than osu!'s "An error occurred"
+                        // dialog from an unhandled exception in a prefix/postfix.
+                        var finalizerMethod = typeof(Main).GetMethod(
+                            nameof(SafetyFinalizer),
+                            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+                        foreach (var m in Harmony.GetAllPatchedMethods().ToList())
+                        {
+                            if (beforeOurs.Contains(m))
+                                continue;
+                            var info = Harmony.GetPatchInfo(m);
+                            if (info == null || !info.Owners.Contains(Harmony.Id))
+                                continue;
+                            // Skip if a finalizer owned by us is already present (defensive: don't
+                            // stack two safety wrappers if a patch class ever declares its own).
+                            if (info.Finalizers.Any(p => p.owner == Harmony.Id))
+                                continue;
+                            Harmony.Patch(m, finalizer: new HarmonyMethod(finalizerMethod));
+                        }
                     }
                     catch (Exception patchEx)
                     {
                         skipped++;
+                        skippedFeatures.Add(FriendlyFeatureName(type.Name));
                         // File-only: these are developer-level diagnostics (obfuscation shifted the
                         // IL, our Harmony pattern needs a rebase). Players don't need the stack
                         // trace in a toast — they get a friendly summary below instead.
                         Logger.logFile($"[patcher] skipped {type.Name}: {patchEx.GetType().Name}: {patchEx.Message}");
+
+                        // Roll back anything this class's Patch() may have attached before it
+                        // threw: leaves osu! with its untouched IL for every target this class
+                        // was about to cover, rather than a half-installed prefix/postfix running
+                        // against an un-prefixed partner method.
+                        try
+                        {
+                            foreach (var m in Harmony.GetAllPatchedMethods().ToList())
+                            {
+                                if (beforeOurs.Contains(m))
+                                    continue;
+                                var info = Harmony.GetPatchInfo(m);
+                                if (info == null || !info.Owners.Contains(Harmony.Id))
+                                    continue;
+                                Harmony.Unpatch(m, HarmonyPatchType.All, Harmony.Id);
+                                Logger.logFile($"[patcher] rolled back partial install on {m.DeclaringType?.Name}.{m.Name}");
+                            }
+                        }
+                        catch (Exception rollbackEx)
+                        {
+                            Logger.logFile($"[patcher] rollback after {type.Name} failure also threw: {rollbackEx.GetType().Name}: {rollbackEx.Message}");
+                        }
                     }
                 }
                 Logger.logFile($"[patcher] installed {installed} patch(es), skipped {skipped}");
                 SignalReady();
 
+                // Always show the big green/yellow "initialized" banner — a skipped non-critical
+                // patch (one RX/AP transpiler whose anchor shifted) is not a reason to hide the
+                // success state. Players reading "some features aren't compatible" interpret the
+                // whole AC as broken when actually most things still work. Pair the massive banner
+                // with per-feature in-game toasts so there's a specific name to report.
                 NotificationManager.ShowMessageMassive(
-                    skipped == 0
-                        ? "somtum patcher is now initialized!"
-                        : "Some patcher features aren't compatible with this osu! build. "
-                          + "Try: launch normal osu! first, then relaunch with the Launcher; "
-                          + "or switch osu! to the cuttingedge build. "
-                          + "Still not working? Ask us on Discord.",
-                    skipped == 0 ? 5000 : 12000,
+                    "somtum patcher is now initialized!",
+                    5000,
                     NotificationManager.NotificationType.Warning
                 );
+                foreach (var feature in skippedFeatures)
+                {
+                    try
+                    {
+                        var color = AccessTools.TypeByName("Microsoft.Xna.Framework.Graphics.Color")
+                            ?.GetProperty("Yellow", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+                            ?.GetValue(null);
+                        NotificationManager.ShowMessage(
+                            $"Feature: {feature} has been disabled due to your osu! build. Please use cuttingedge or contact our Discord.",
+                            color,
+                            15000);
+                    }
+                    catch (Exception toastEx)
+                    {
+                        // A missing XNA Color at toast time (odd build or stripped assembly) shouldn't
+                        // abort the whole post-init path — log and skip the per-feature toast only.
+                        Logger.logFile($"[patcher] skipped-feature toast for '{feature}' failed: {toastEx.GetType().Name}: {toastEx.Message}");
+                    }
+                }
             }
             catch (Exception e)
             {
@@ -158,6 +251,83 @@ namespace OsuPatcher.Runtime
             catch (Exception e)
             {
                 Logger.logFile($"[patcher] ready signal failed: {e.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Finalizer attached by <see cref="Initialize"/> to every method we successfully patch.
+        /// On any exception escaping the Prefix/original/Postfix chain, logs the fault, unpatches
+        /// just this target under our Harmony id on a background thread (so we don't mutate the
+        /// detour we're currently inside), and swallows the exception so the game doesn't surface
+        /// an unhandled-exception dialog. Returning null tells Harmony to clear the exception;
+        /// returning __exception would rethrow it.
+        /// </summary>
+        private static Exception SafetyFinalizer(Exception __exception, System.Reflection.MethodBase __originalMethod)
+        {
+            if (__exception == null) return null;
+            try
+            {
+                Logger.logFile($"[patcher] runtime exception in patched {__originalMethod?.DeclaringType?.Name}.{__originalMethod?.Name}, auto-unpatching: {__exception.GetType().Name}: {__exception.Message}");
+                var target = __originalMethod;
+                if (target != null)
+                {
+                    // Defer the unpatch: we're currently inside the detour for `target`. Harmony's
+                    // Unpatch is safe to call reentrantly, but doing it on a background thread
+                    // keeps the current call's return path trivial and avoids any surprise with
+                    // JIT swapping the method body while a wrapper frame is on the stack.
+                    System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+                    {
+                        try
+                        {
+                            Harmony.Unpatch(target, HarmonyPatchType.All, Harmony.Id);
+                            Logger.logFile($"[patcher] unpatched {target.DeclaringType?.Name}.{target.Name} after runtime fault");
+                        }
+                        catch (Exception unpatchEx)
+                        {
+                            Logger.logFile($"[patcher] deferred unpatch of {target.DeclaringType?.Name}.{target.Name} threw: {unpatchEx.GetType().Name}: {unpatchEx.Message}");
+                        }
+                    });
+                }
+            }
+            catch
+            {
+                // Last-resort: we must not let a logging-side exception re-throw inside the
+                // finalizer and defeat the swallow. Nothing to log it with anyway.
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Human-friendly name for a patch class, for the per-feature "disabled on this build"
+        /// toast. Hard-coded map (not a reflection trick) so the shown text stays obvious to
+        /// read in the game and in bug reports: a player saying "Feature: Relax miss handling
+        /// has been disabled" is actionable, "RelaxMissPatch" less so.
+        /// </summary>
+        private static string FriendlyFeatureName(string patchClassName)
+        {
+            switch (patchClassName)
+            {
+                case "RelaxMissPatch":            return "Relax miss handling";
+                case "RelaxComboBreakPatch":      return "Relax combo-break prevention";
+                case "AutoSaveRelaxScoresPatch":  return "RX/AP auto-save scores";
+                case "TransitionPatch":           return "Fast menu transitions";
+                case "PkmsUsernamePatch":         return "Anti-cheat username handoff";
+                case "LocalisationPatch":         return "In-game localisation";
+                case "OptionsPatch":              return "Somtum options menu";
+                case "PerformanceCalculationPatch": return "Live pp counter (calculator)";
+                case "PlayerUpdatePatch":         return "Live pp counter (per-frame)";
+                case "PlayerOnLoadCompletePatch": return "Live pp counter (on map load)";
+                default:
+                    // Fallback: strip trailing "Patch" and insert spaces at camel-case boundaries.
+                    var name = patchClassName.EndsWith("Patch") ? patchClassName.Substring(0, patchClassName.Length - "Patch".Length) : patchClassName;
+                    var sb = new System.Text.StringBuilder(name.Length + 4);
+                    for (int i = 0; i < name.Length; i++)
+                    {
+                        if (i > 0 && char.IsUpper(name[i]) && !char.IsUpper(name[i - 1]))
+                            sb.Append(' ');
+                        sb.Append(name[i]);
+                    }
+                    return sb.ToString();
             }
         }
 

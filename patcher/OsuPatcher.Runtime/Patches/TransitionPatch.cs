@@ -30,10 +30,8 @@ namespace OsuPatcher.Runtime.Patches
             // speed-up stays off on that build, but the game doesn't crash.
             const int ANCHOR_INDEX = 127;
             if (codes.Count <= ANCHOR_INDEX || codes[ANCHOR_INDEX].opcode != OpCodes.Ldc_R4)
-            {
-                OsuPatcher.Runtime.Utils.Logger.log($"[TransitionPatch] IL anchor shifted (codes[{ANCHOR_INDEX}] is {(codes.Count > ANCHOR_INDEX ? codes[ANCHOR_INDEX].opcode.ToString() : "oob")}), skipping transpile");
-                return instructions;
-            }
+                throw new System.InvalidOperationException(
+                    $"[TransitionPatch] IL anchor shifted (codes[{ANCHOR_INDEX}] is {(codes.Count > ANCHOR_INDEX ? codes[ANCHOR_INDEX].opcode.ToString() : "oob")}, expected Ldc_R4) — pattern needs a rebase");
 
             codes.RemoveAt(ANCHOR_INDEX);
             codes.Insert(ANCHOR_INDEX, new CodeInstruction(OpCodes.Call,

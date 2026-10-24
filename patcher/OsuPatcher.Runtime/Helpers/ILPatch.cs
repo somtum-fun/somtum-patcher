@@ -28,15 +28,24 @@ namespace OsuPatcher.Runtime.Helpers
             var sig = signature.Where(s => s != OpCodes.Nop).ToArray();
             if (sig.Length == 0) return null;
 
-            return OsuModule.GetTypes()
+            // Collect ALL matches so an ambiguous pattern (two methods containing the sequence after
+            // a new obfuscation pass) is logged instead of silently picking the first — a wrong
+            // target lets the transpiler run on an unrelated method, which usually succeeds
+            // vacuously and gives us a false "installed" count.
+            var matches = OsuModule.GetTypes()
                 .SelectMany(t => t.GetRuntimeMethods())
-                .FirstOrDefault(m =>
+                .Where(m =>
                 {
                     var b = m.GetMethodBody()?.GetILAsByteArray();
                     if (b == null) return false;
-
                     return ContainsSequence(b, sig);
-                });
+                })
+                .Take(5)
+                .ToList();
+            if (matches.Count > 1)
+                OsuPatcher.Runtime.Utils.Logger.logFile(
+                    $"[ILPatch] ambiguous signature matched {matches.Count}+ methods: {string.Join(", ", matches.Select(m => (m.DeclaringType?.Name ?? "?") + "." + m.Name))} — picking first, pattern should be tightened");
+            return matches.FirstOrDefault();
         }
 
         /// <summary>

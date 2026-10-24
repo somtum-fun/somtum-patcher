@@ -50,7 +50,8 @@ namespace OsuPatcher.Runtime.Patches
                 }
             }
             if (miss < 0)
-                return codes;
+                throw new System.InvalidOperationException(
+                    "[RelaxMissPatch] miss-comparison anchor (ldc.i4 -131072; bne.un) not found — IL shape shifted, pattern needs a rebase");
 
             var check = typeof(PatchRelaxMiss).GetMethod(nameof(PatchRelax), BindingFlags.Public | BindingFlags.Static);
 
@@ -69,6 +70,10 @@ namespace OsuPatcher.Runtime.Patches
                 patched++;
                 i += 2; // step past the inserted call/and (and this guard's brtrue)
             }
+
+            if (patched != 2)
+                throw new System.InvalidOperationException(
+                    $"[RelaxMissPatch] expected 2 guard pairs (!Replay && !Watching) after miss comparison, patched {patched} — IL shape shifted, pattern needs a rebase");
 
             return codes;
         }

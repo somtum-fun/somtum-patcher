@@ -33,10 +33,8 @@ namespace OsuPatcher.Runtime.Patches
             const int REMOVE_INDEX = 1558;
             const int INSERT_INDEX = 1559;
             if (codes.Count <= INSERT_INDEX || codes[REMOVE_INDEX].opcode != OpCodes.Brtrue_S)
-            {
-                OsuPatcher.Runtime.Utils.Logger.log($"[RelaxComboBreakPatch] IL anchor shifted (codes[{REMOVE_INDEX}] is {(codes.Count > REMOVE_INDEX ? codes[REMOVE_INDEX].opcode.ToString() : "oob")}), skipping transpile");
-                return instructions;
-            }
+                throw new System.InvalidOperationException(
+                    $"[RelaxComboBreakPatch] IL anchor shifted (codes[{REMOVE_INDEX}] is {(codes.Count > REMOVE_INDEX ? codes[REMOVE_INDEX].opcode.ToString() : "oob")}, expected Brtrue_S) — pattern needs a rebase");
 
             codes.RemoveAt(REMOVE_INDEX);
             codes.InsertRange(INSERT_INDEX, new CodeInstruction[]

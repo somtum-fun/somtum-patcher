@@ -76,7 +76,8 @@ namespace OsuPatcher.Runtime.Patches
             }
 
             if (inserted == 0)
-                Utils.Logger.logFile("[PkmsUsernamePatch] no op_Implicit→WriteLine site matched; PKMS_USERNAME won't be set on first login");
+                throw new System.InvalidOperationException(
+                    "[PkmsUsernamePatch] no op_Implicit→WriteLine site matched; BanchoClient.connect login-write shape changed, pattern needs a rebase");
 
             return codes;
         }
