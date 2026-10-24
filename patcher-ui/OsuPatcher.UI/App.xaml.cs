@@ -96,9 +96,16 @@ namespace OsuPatcher.UI
             {
                 try
                 {
-                    var proc = InjectorCore.LaunchOsuPlain(launchOsuPath);
+                    var proc = InjectorCore.LaunchOsuPlain(launchOsuPath, out var pipeDone);
                     var pid = InjectorCore.WaitForInjectable(proc, System.Threading.CancellationToken.None, TimeSpan.FromMinutes(2));
                     InjectorCore.Inject(pid);
+                    // Headless mode: block on the pipe-handoff thread (background, so it would
+                    // die with Shutdown and pkms, loaded a moment later by patcher-runtime, would
+                    // find the pipe gone and fall back to the env token — the env leak the pipe
+                    // was supposed to close). The pipe server self-caps at 10s so the worst-case
+                    // extra delay here matches its own deadline; most launches it signals in <1s.
+                    // Interactive mode doesn't need this: MainWindow keeps the process alive.
+                    pipeDone?.Wait(TimeSpan.FromSeconds(12));
                     Console.Out.WriteLine("ok");
                     Shutdown(0);
                 }

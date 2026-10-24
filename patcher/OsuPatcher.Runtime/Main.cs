@@ -36,11 +36,14 @@ namespace OsuPatcher.Runtime
         // osu! — a plain in-process LoadLibrary, no cross-process CreateRemoteThread. Silent if
         // pkms.dll is missing (dev build without AC) or already loaded (re-inject).
         //
-        // Launch token: pkms refuses to run without PKMS_LAUNCH_TOKEN set in the environment
-        // (pkms_injector.exe seeds it before CreateProcessW on the native path). We generate the
-        // same shape of random hex here and set it on osu!'s process env block before loading
-        // the DLL so verify_launch_token() in net.c passes. pkms clears the var itself right
-        // after, so children osu! spawns don't inherit it.
+        // Launch token: pkms refuses to run without PKMS_LAUNCH_TOKEN set in the environment.
+        // patcher-ui (InjectorCore.ApplyLaunchToken) now fetches a server-signed one via
+        // /anticheat/launch-token and plants it as a child-process env var before launch. If
+        // that reached us (env var already set, server-signed shape nonce:unix:sig), KEEP IT —
+        // overwriting with a random 32-byte-hex would downgrade pkms to the legacy accept path
+        // and the server-side RequireLaunchToken flip could never catch skips. Only fall back
+        // to the random form when the env is empty (patcher-ui couldn't reach the server, or
+        // this isn't a patcher-UI launch).
         private static void LoadPkmsIfPresent()
         {
             try
@@ -65,12 +68,22 @@ namespace OsuPatcher.Runtime
                     return;
                 }
 
-                var bytes = new byte[32];
-                using (var rng = new System.Security.Cryptography.RNGCryptoServiceProvider())
-                    rng.GetBytes(bytes);
-                var hex = new System.Text.StringBuilder(bytes.Length * 2);
-                foreach (var b in bytes) hex.Append(b.ToString("x2"));
-                SetEnvironmentVariableW(PkmsLaunchTokenEnv, hex.ToString());
+                // Only seed a legacy random token if patcher-ui didn't plant a server-signed one.
+                var existing = Environment.GetEnvironmentVariable(PkmsLaunchTokenEnv);
+                if (string.IsNullOrEmpty(existing))
+                {
+                    var bytes = new byte[32];
+                    using (var rng = new System.Security.Cryptography.RNGCryptoServiceProvider())
+                        rng.GetBytes(bytes);
+                    var hex = new System.Text.StringBuilder(bytes.Length * 2);
+                    foreach (var b in bytes) hex.Append(b.ToString("x2"));
+                    SetEnvironmentVariableW(PkmsLaunchTokenEnv, hex.ToString());
+                    Logger.logFile("[pkms] seeded legacy launch token (no server-signed one in env)");
+                }
+                else
+                {
+                    Logger.logFile("[pkms] using server-signed launch token from patcher-ui");
+                }
 
                 var h = LoadLibraryExW(dll, IntPtr.Zero, LOAD_WITH_ALTERED_SEARCH_PATH);
                 Logger.logFile(h == IntPtr.Zero

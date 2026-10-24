@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<!--
+    0.9.4 §A patcher attestation: narrow-scope Obfuscar pass over patcher-ui.exe. We
+    only obfuscate the OsuPatcher.UI.Attestation namespace (the HMAC secret, its
+    two XOR-split blob classes, the reconstruct method). Everything else in the exe
+    - WPF entry points, XAML-referenced types, P/Invoke declarations - keeps its
+    original names so Microsoft's loader, XamlReader, and marshalling see what they
+    expect. Build-bundle.sh runs this after `dotnet build` and before staging.
+
+    Why not whole-assembly: Obfuscar's AnalyzeXaml does a reasonable job of keeping
+    MainWindow.* and friends alive, but it still can't reason about every reflection
+    path WPF takes (RelativeSource, DynamicResource, {Binding} with named sources).
+    Narrow-scope obfuscation of ONE namespace that has no XAML references and no
+    reflection consumers is risk-free. If we want wider coverage later, that's a
+    0.10.x change behind a separate ship.
+
+    AssemblySearchPath is populated at runtime by build-bundle.sh via `-var:` so the
+    config stays portable across .NET-Framework-reference-assembly layouts.
+-->
+<Obfuscator>
+  <!-- InPath / OutPath / RefAsmPath come from build-bundle.sh via -var: CLI flags.
+       Do NOT redefine them here with $(InPath) etc. — Obfuscar's variable
+       expander treats "$(InPath)" as "look up InPath" and self-reference
+       deadlocks it into a stack overflow at project-load time. -->
+  <Var name="KeepPublicApi" value="true" />
+  <Var name="HidePrivateApi" value="true" />
+  <Var name="HideStrings" value="true" />
+  <Var name="RenameProperties" value="true" />
+  <Var name="RenameEvents" value="true" />
+  <Var name="RenameFields" value="true" />
+  <Var name="UseUnicodeNames" value="true" />
+  <Var name="OptimizeMethods" value="false" />
+  <Var name="AnalyzeXaml" value="true" />
+  <AssemblySearchPath path="$(InPath)" />
+  <AssemblySearchPath path="$(RefAsmPath)" />
+  <Module file="$(InPath)/patcher-ui.exe">
+    <!-- Rename ONLY types under OsuPatcher.UI.Attestation.*. Every other type keeps
+         its original name so WPF, P/Invoke marshalling, and embedded-resource
+         lookups (ExtractNativePayload) all keep working. The regex is applied by
+         Obfuscar as "skip these"; everything NOT matching falls through to
+         obfuscation only if HidePrivateApi lets it. Combined with KeepPublicApi
+         (true) and our types being `internal static`, only our stuff gets touched. -->
+    <SkipNamespace rx="^(?!OsuPatcher\.UI\.Attestation(\.|$)).*" />
+  </Module>
+</Obfuscator>
