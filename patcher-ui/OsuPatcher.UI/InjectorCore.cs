@@ -302,8 +302,88 @@ namespace OsuPatcher.UI
             }
 
             var runtimePath = Path.Combine(dir, RuntimeDllName);
-            using (var proc = new InjectableProcess(pid))
-                proc.Inject(runtimePath, RuntimeEntryType, "Initialize");
+
+            // The runtime's Initialize runs inside osu! and Inject waits for it. The runtime has its own
+            // install watchdog (10 s, 30 s on Wine) that undoes its patches when they don't all go in, so
+            // past that, plus some slack, we stop waiting. If osu! itself has stopped responding by then,
+            // it's closed and the player is told why (1.5.27 left a frozen osu! behind with no message).
+            Exception injectError = null;
+            var injecting = new Thread(() =>
+            {
+                try
+                {
+                    using (var proc = new InjectableProcess(pid))
+                        proc.Inject(runtimePath, RuntimeEntryType, "Initialize");
+                }
+                catch (Exception e)
+                {
+                    injectError = e;
+                }
+            })
+            {
+                IsBackground = true,
+                Name = "Somtum Patcher inject",
+            };
+            injecting.Start();
+
+            var deadline = TimeSpan.FromSeconds(IsWine() ? 30 : 10) + TimeSpan.FromSeconds(10);
+            if (injecting.Join(deadline))
+            {
+                if (injectError != null)
+                    throw injectError;
+                return;
+            }
+
+            if (OsuFrozen(pid))
+            {
+                try
+                {
+                    Process.GetProcessById((int)pid).Kill();
+                }
+                catch (Exception)
+                {
+                    // already gone
+                }
+
+                throw new OsuFrozenException("osu! froze while the Somtum Patcher was setting up, so it has been closed. Start it again from the Patcher. "
+                                    + "If it keeps happening, switch osu! to the Cutting Edge release stream (Options > General > Updates) and tell us on Discord.");
+            }
+
+            // osu! is fine: the runtime's watchdog undid its patches and told the player in the game.
+        }
+
+        /// <summary>osu! stopped responding while the runtime was installing, and was closed.</summary>
+        public sealed class OsuFrozenException : Exception
+        {
+            public OsuFrozenException(string message)
+                : base(message)
+            {
+            }
+        }
+
+        // Not responding twice, a second apart (a single check can catch a busy moment).
+        private static bool OsuFrozen(uint pid)
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                try
+                {
+                    using (var osu = Process.GetProcessById((int)pid))
+                    {
+                        if (osu.HasExited || osu.Responding)
+                            return false;
+                    }
+                }
+                catch (Exception)
+                {
+                    return false;
+                }
+
+                if (i == 0)
+                    Thread.Sleep(1000);
+            }
+
+            return true;
         }
     }
 }

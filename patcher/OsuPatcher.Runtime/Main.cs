@@ -28,6 +28,22 @@ namespace OsuPatcher.Runtime
         private static extern bool SetEnvironmentVariableW(string name, string value);
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern IntPtr GetModuleHandleW(string lpModuleName);
+        [DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true)]
+        private static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
+
+        // Install watchdog: if the patches aren't all in within this long of Initialize starting, they're
+        // undone and osu! carries on unpatched (1.5.27 hung osu! mid-install with nothing to show for it).
+        // A cold Wine start is a lot slower, so it gets longer.
+        private static readonly TimeSpan InstallTimeout = TimeSpan.FromSeconds(10);
+        private static readonly TimeSpan InstallTimeoutWine = TimeSpan.FromSeconds(30);
+        private static readonly System.Threading.ManualResetEvent _installDone = new System.Threading.ManualResetEvent(false);
+        private static volatile bool _installTimedOut;
+
+        private static bool IsWine()
+        {
+            var ntdll = GetModuleHandleW("ntdll.dll");
+            return ntdll != IntPtr.Zero && GetProcAddress(ntdll, "wine_get_version") != IntPtr.Zero;
+        }
         private const uint LOAD_WITH_ALTERED_SEARCH_PATH = 0x00000008;
         private const string PkmsLaunchTokenEnv = "PKMS_LAUNCH_TOKEN";
 
@@ -102,6 +118,7 @@ namespace OsuPatcher.Runtime
             {
                 LoadPkmsIfPresent();
                 Server = ResolveServer(st);
+                StartInstallWatchdog();
 
                 // Per-type patching: one broken patch (shifted IL from a new obfuscation pass, a
                 // removed method, a changed signature) throws SEHException inside Harmony's
@@ -115,6 +132,9 @@ namespace OsuPatcher.Runtime
                 var skippedFeatures = new System.Collections.Generic.List<string>();
                 foreach (var type in typeof(Main).Assembly.GetTypes())
                 {
+                    // The watchdog gave up on us and undid what was in: install nothing more.
+                    if (_installTimedOut)
+                        break;
                     if (type.GetCustomAttributes(typeof(HarmonyPatch), inherit: true).Length == 0)
                         continue;
 
@@ -205,6 +225,14 @@ namespace OsuPatcher.Runtime
                         }
                     }
                 }
+                if (_installTimedOut)
+                {
+                    // Finished after all: undo anything that went in after the watchdog's pass. The
+                    // watchdog has signalled ready and told the player already.
+                    UndoAllPatches("late finish after the install timeout");
+                    return 0;
+                }
+                _installDone.Set();
                 Logger.logFile($"[patcher] installed {installed} patch(es), skipped {skipped}");
                 SignalReady();
 
@@ -245,6 +273,64 @@ namespace OsuPatcher.Runtime
             }
 
             return 0;
+        }
+
+        /// <summary>
+        /// Starts the install watchdog (<see cref="InstallTimeout"/>, <see cref="InstallTimeoutWine"/> on Wine): when
+        /// the patches aren't all in by then, it undoes the ones that are, tells the anti-cheat we're done (osu!'s
+        /// code is its own again, so its baselines are right), and tells the player their features are off.
+        /// </summary>
+        private static void StartInstallWatchdog()
+        {
+            var timeout = IsWine() ? InstallTimeoutWine : InstallTimeout;
+            var watchdog = new System.Threading.Thread(() =>
+            {
+                if (_installDone.WaitOne(timeout))
+                    return;
+
+                _installTimedOut = true;
+                Logger.logFile($"[patcher] install didn't finish within {timeout.TotalSeconds:0} s; undoing the patches");
+
+                // Undo on its own thread: if the install is stuck inside Harmony, unpatching may wait on it too.
+                var undo = new System.Threading.Thread(() => UndoAllPatches("install timeout")) { IsBackground = true };
+                undo.Start();
+                undo.Join(TimeSpan.FromSeconds(5));
+
+                SignalReady();
+                try
+                {
+                    NotificationManager.ShowMessage(
+                        $"The Somtum Patcher couldn't finish setting up within {timeout.TotalSeconds:0} seconds, so its changes were undone: "
+                        + "Relax/Autopilot, the pp counter and the Somtum options are off for this session. Restart osu! from the Patcher "
+                        + "to try again, or switch osu! to the Cutting Edge release stream (Options > General > Updates).",
+                        AccessTools.TypeByName("Microsoft.Xna.Framework.Graphics.Color")
+                            ?.GetProperty("Orange", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+                            ?.GetValue(null),
+                        20000);
+                }
+                catch (Exception e)
+                {
+                    Logger.logFile($"[patcher] install-timeout message failed: {e.GetType().Name}: {e.Message}");
+                }
+            })
+            {
+                IsBackground = true,
+                Name = "Somtum Patcher install watchdog",
+            };
+            watchdog.Start();
+        }
+
+        private static void UndoAllPatches(string why)
+        {
+            try
+            {
+                Harmony.UnpatchAll(Harmony.Id);
+                Logger.logFile($"[patcher] undid every patch ({why})");
+            }
+            catch (Exception e)
+            {
+                Logger.logFile($"[patcher] undoing the patches ({why}) threw: {e.GetType().Name}: {e.Message}");
+            }
         }
 
         // Held for the whole session: the named event lives as long as one handle to it is open.

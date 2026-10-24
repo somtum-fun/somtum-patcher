@@ -72,6 +72,7 @@ namespace OsuPatcher.UI
                     catch (Exception ex)
                     {
                         Console.Error.WriteLine($"error: {ex.Message}");
+                        ShowIfFrozen(ex);
                         Shutdown(1);
                     }
                     return;
@@ -112,6 +113,7 @@ namespace OsuPatcher.UI
                 catch (Exception ex)
                 {
                     Console.Error.WriteLine($"error: {ex.Message}");
+                    ShowIfFrozen(ex);
                     Shutdown(1);
                 }
                 return;
@@ -119,6 +121,14 @@ namespace OsuPatcher.UI
 
             // Interactive mode: original behaviour.
             new MainWindow().Show();
+        }
+
+        // The command-line modes have no window, and the injector only prints our stderr: a frozen osu!
+        // that was closed is worth a dialog, so the player knows why the game vanished.
+        private static void ShowIfFrozen(Exception ex)
+        {
+            if (ex is InjectorCore.OsuFrozenException)
+                MessageBox.Show(ex.Message, "Somtum Patcher", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
 
         private static void ExtractNativePayload()
