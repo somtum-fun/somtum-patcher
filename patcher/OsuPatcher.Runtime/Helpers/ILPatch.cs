@@ -32,6 +32,15 @@ namespace OsuPatcher.Runtime.Helpers
             // a new obfuscation pass) is logged instead of silently picking the first — a wrong
             // target lets the transpiler run on an unrelated method, which usually succeeds
             // vacuously and gives us a false "installed" count.
+            //
+            // GetRuntimeMethods() on a subclass also lists the methods it inherits, so one body shows
+            // up once per subclass (same token, different ReflectedType). Harmony refuses those
+            // inherited views ("Patch the declared method instead"), which is what kept
+            // PatchAutoSaveRelaxScores (Ranking has 3 subclasses) and PatchRelaxMiss
+            // (HitObjectManager has 11) off on both stable and cuttingedge. Dedupe by token and
+            // resolve each match to the view of the type that declares it. The scan itself is
+            // unchanged: matching still runs over the same methods in the same order.
+            var seen = new HashSet<int>();
             var matches = OsuModule.GetTypes()
                 .SelectMany(t => t.GetRuntimeMethods())
                 .Where(m =>
@@ -40,6 +49,8 @@ namespace OsuPatcher.Runtime.Helpers
                     if (b == null) return false;
                     return ContainsSequence(b, sig);
                 })
+                .Where(m => m.Module == OsuModule && seen.Add(m.MetadataToken))
+                .Select(m => m.ReflectedType == m.DeclaringType ? m : (MethodInfo)OsuModule.ResolveMethod(m.MetadataToken))
                 .Take(5)
                 .ToList();
             if (matches.Count > 1)

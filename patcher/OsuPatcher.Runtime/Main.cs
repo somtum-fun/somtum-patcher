@@ -135,6 +135,9 @@ namespace OsuPatcher.Runtime
 
                     try
                     {
+                        // One line per class before it installs: if osu! ever hangs while patching
+                        // (as 1.5.27 did on stable, with no clue which patch), the last line names it.
+                        Logger.logFile($"[patcher] installing {type.Name}");
                         new PatchClassProcessor(Harmony, type).Patch();
                         installed++;
 
@@ -223,7 +226,7 @@ namespace OsuPatcher.Runtime
                             ?.GetProperty("Yellow", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
                             ?.GetValue(null);
                         NotificationManager.ShowMessage(
-                            $"Feature: {feature} has been disabled due to your osu! build. Please use cuttingedge or contact our Discord.",
+                            $"Feature: {feature} has been disabled due to your osu! build. Please tell us on our Discord.",
                             color,
                             15000);
                     }
@@ -320,10 +323,10 @@ namespace OsuPatcher.Runtime
         {
             switch (patchClassName)
             {
-                case "RelaxMissPatch":            return "Relax miss handling";
-                case "RelaxComboBreakPatch":      return "Relax combo-break prevention";
-                case "AutoSaveRelaxScoresPatch":  return "RX/AP auto-save scores";
-                case "TransitionPatch":           return "Fast menu transitions";
+                case "PatchRelaxMiss":            return "Relax miss handling";
+                case "PatchRelaxComboBreak":      return "Relax combo-break prevention";
+                case "PatchAutoSaveRelaxScores":  return "RX/AP auto-save scores";
+                case "PatchTransition":           return "Fast menu transitions";
                 case "PkmsUsernamePatch":         return "Anti-cheat username handoff";
                 case "LocalisationPatch":         return "In-game localisation";
                 case "OptionsPatch":              return "Somtum options menu";
