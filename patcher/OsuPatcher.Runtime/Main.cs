@@ -120,6 +120,18 @@ namespace OsuPatcher.Runtime
                 Server = ResolveServer(st);
                 StartInstallWatchdog();
 
+                // Players pressed Play while the patches were still going in (and hit the freeze below): say so.
+                try
+                {
+                    NotificationManager.ShowMessageMassive(
+                        "Somtum Patcher is setting up, please wait before you play...", 4000,
+                        NotificationManager.NotificationType.Info);
+                }
+                catch (Exception e)
+                {
+                    Logger.logFile($"[patcher] setting-up message failed: {e.GetType().Name}: {e.Message}");
+                }
+
                 // Per-type patching: one broken patch (shifted IL from a new obfuscation pass, a
                 // removed method, a changed signature) throws SEHException inside Harmony's
                 // UpdateWrapper and would, under PatchAll, abort the whole batch — the player loses
@@ -294,15 +306,24 @@ namespace OsuPatcher.Runtime
                 // Undo on its own thread: if the install is stuck inside Harmony, unpatching may wait on it too.
                 var undo = new System.Threading.Thread(() => UndoAllPatches("install timeout")) { IsBackground = true };
                 undo.Start();
-                undo.Join(TimeSpan.FromSeconds(5));
+                // The undo needs the lock the stuck install holds: if it isn't done by then, nothing was undone,
+                // and the method being patched may stay locked (osu! then freezes the first time it runs it,
+                // which for the gameplay patches is when a map starts).
+                bool undone = undo.Join(TimeSpan.FromSeconds(5));
+                if (!undone)
+                    Logger.logFile("[patcher] the undo is stuck behind the install too: osu! may freeze when it next runs a patched method");
 
                 SignalReady();
                 try
                 {
                     NotificationManager.ShowMessage(
-                        $"The Somtum Patcher couldn't finish setting up within {timeout.TotalSeconds:0} seconds, so its changes were undone: "
-                        + "Relax/Autopilot, the pp counter and the Somtum options are off for this session. Restart osu! from the Patcher "
-                        + "to try again, or switch osu! to the Cutting Edge release stream (Options > General > Updates).",
+                        undone
+                            ? $"The Somtum Patcher couldn't finish setting up within {timeout.TotalSeconds:0} seconds, so its changes were undone: "
+                              + "Relax/Autopilot, the pp counter and the Somtum options are off for this session. Restart osu! from the Patcher "
+                              + "to try again, or switch osu! to the Cutting Edge release stream (Options > General > Updates)."
+                            : $"The Somtum Patcher got stuck setting up and couldn't undo it. Please close osu! and start it again from the "
+                              + "Patcher: playing a map now may freeze the game. If it keeps happening, switch osu! to the Cutting Edge release "
+                              + "stream (Options > General > Updates) and tell us on our Discord.",
                         AccessTools.TypeByName("Microsoft.Xna.Framework.Graphics.Color")
                             ?.GetProperty("Orange", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
                             ?.GetValue(null),
