@@ -25,6 +25,6 @@ using System.Runtime.InteropServices;
 
 // 1.5.x track = Patcher releases. Bumped per ship; see publish.py PATCHER_VERSION
 // and ~/.cache/somtum-dist/tools/publish.py for the authoritative counter.
-[assembly: AssemblyVersion("1.5.36.0")]
-[assembly: AssemblyFileVersion("1.5.36.0")]
-[assembly: AssemblyInformationalVersion("1.5.36-dev")]
+[assembly: AssemblyVersion("1.5.37.0")]
+[assembly: AssemblyFileVersion("1.5.37.0")]
+[assembly: AssemblyInformationalVersion("1.5.37-dev")]
