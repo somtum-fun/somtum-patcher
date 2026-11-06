@@ -6,17 +6,10 @@ using System.Threading;
 namespace OsuPatcher.UI
 {
     /// <summary>
-    /// 0.9.0 §3 named-pipe handoff for the server-signed launch token. Keeps PKMS_LAUNCH_TOKEN
-    /// out of osu!'s environment block — same-user processes could otherwise walk the PEB and
-    /// lift the token for their lifetime of the osu! session. The pipe is named after the osu!
-    /// pid (<c>\\.\pipe\pkms-launch-{pid}</c>) and refuses any client whose
-    /// <c>GetNamedPipeClientProcessId</c> isn't that pid, so an attacker who learns the pipe
-    /// name can't race in: pids are unique and pkms always connects from the one we just
-    /// spawned. One-shot: delivers the token to the first matching client, then shuts down.
+    /// Hands the launch token to osu! when it starts.
     /// </summary>
     internal static class LaunchTokenPipeServer
     {
-        // Match pkms's \\.\pipe\pkms-launch-<pid> client (net.c read_launch_token_from_pipe).
         private const string PipeNameFormat = @"\\.\pipe\pkms-launch-{0}";
 
         private const uint PIPE_ACCESS_OUTBOUND = 0x00000002;

@@ -115,7 +115,7 @@ namespace OsuPatcher.UI
         /// LaunchOsuPlain plus a handle headless callers can wait on before Application.Shutdown:
         /// the pipe-server thread is background and would die with the process. See App.xaml.cs's
         /// --launch-and-inject entry for the pattern. <paramref name="pipeDone"/> is null when no
-        /// token was issued (blank cfg / server offline — pkms will have nothing to receive anyway).
+        /// token was issued.
         /// Callers that always use interactive mode can keep calling the one-arg overload.
         /// </summary>
         public static Process LaunchOsuPlain(string osuExePath, out ManualResetEventSlim pipeDone)
@@ -130,9 +130,6 @@ namespace OsuPatcher.UI
             };
             var pendingToken = ApplyLaunchToken(plain, osuExePath, usePipeHandoff: true);
             var proc = Process.Start(plain) ?? throw new Exception("Failed to start osu!.");
-            // Serve the token over a named pipe keyed on osu!'s pid so pkms can pick it up
-            // without a long-lived env var in osu!'s PEB. pkms will fall through to the env
-            // (also set by ApplyLaunchToken as a safety net) if the pipe never arrives.
             pipeDone = !string.IsNullOrEmpty(pendingToken)
                 ? LaunchTokenPipeServer.StartOneShot(proc.Id, pendingToken, TimeSpan.FromSeconds(10))
                 : null;
@@ -140,20 +137,7 @@ namespace OsuPatcher.UI
         }
 
         /// <summary>
-        /// 0.9.0 §1: fetch a server-signed launch token and plant it in the child env so pkms can
-        /// forward it in /anticheat/key. Also stamps PKMS_USERNAME so pkms doesn't race against
-        /// osu!'s cfg rewrites and come up with a different name than the one we signed the token
-        /// against. Both envs are no-ops without a running server, so the method is safe to call
-        /// unconditionally on every launch path.
-        ///
-        /// 0.9.0 §3: when <paramref name="usePipeHandoff"/> is true, also sets PKMS_LAUNCH_PIPE=1
-        /// so pkms knows to connect to the per-pid handoff pipe (served by the caller after
-        /// Process.Start) instead of reading the token from the env. The caller is responsible
-        /// for actually standing up the pipe — this method only returns the token so the caller
-        /// can hand it off out-of-band. The env PKMS_LAUNCH_TOKEN is still set as a safety net:
-        /// if the pipe fails to come up, pkms logs it and refuses to run (see verify_launch_token
-        /// in net.c), so the env fallback here only matters for a legacy pkms that doesn't speak
-        /// the pipe protocol.
+        /// Fetches a launch token and sets up osu!'s environment for it.
         /// </summary>
         /// <returns>The token issued (so the caller can serve it over the pipe), or null when
         /// no token was obtained (blank cfg, server unreachable).</returns>
@@ -161,10 +145,10 @@ namespace OsuPatcher.UI
         {
             var username = AnticheatClient.ReadOsuUsername(osuExePath);
             if (string.IsNullOrEmpty(username))
-                return null;   // first ever launch, blank cfg: no token to issue, pkms will go without.
+                return null;
             var token = AnticheatClient.IssueLaunchToken(username);
             if (string.IsNullOrEmpty(token))
-                return null;   // server unreachable; fail open — RequireLaunchToken decides server-side.
+                return null;
             psi.EnvironmentVariables["PKMS_LAUNCH_TOKEN"] = token;
             psi.EnvironmentVariables["PKMS_USERNAME"] = username;
             if (usePipeHandoff)

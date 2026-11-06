@@ -51,15 +51,6 @@ namespace OsuPatcher.Runtime
         // on Wine (and on Windows when pkms_injector.exe timed out) this is how the AC reaches
         // osu! — a plain in-process LoadLibrary, no cross-process CreateRemoteThread. Silent if
         // pkms.dll is missing (dev build without AC) or already loaded (re-inject).
-        //
-        // Launch token: pkms refuses to run without PKMS_LAUNCH_TOKEN set in the environment.
-        // patcher-ui (InjectorCore.ApplyLaunchToken) now fetches a server-signed one via
-        // /anticheat/launch-token and plants it as a child-process env var before launch. If
-        // that reached us (env var already set, server-signed shape nonce:unix:sig), KEEP IT —
-        // overwriting with a random 32-byte-hex would downgrade pkms to the legacy accept path
-        // and the server-side RequireLaunchToken flip could never catch skips. Only fall back
-        // to the random form when the env is empty (patcher-ui couldn't reach the server, or
-        // this isn't a patcher-UI launch).
         private static void LoadPkmsIfPresent()
         {
             try
@@ -84,7 +75,6 @@ namespace OsuPatcher.Runtime
                     return;
                 }
 
-                // Only seed a legacy random token if patcher-ui didn't plant a server-signed one.
                 var existing = Environment.GetEnvironmentVariable(PkmsLaunchTokenEnv);
                 if (string.IsNullOrEmpty(existing))
                 {

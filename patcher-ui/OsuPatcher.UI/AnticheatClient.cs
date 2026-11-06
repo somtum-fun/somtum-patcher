@@ -10,18 +10,8 @@ namespace OsuPatcher.UI
 {
     /// <summary>
     /// Fetches a one-shot launch token from the server before <see cref="InjectorCore.LaunchOsu"/>
-    /// starts osu!. pkms (loaded inside osu!.exe) reads <c>PKMS_LAUNCH_TOKEN</c> from the child env
-    /// on first <c>/anticheat/key</c> and the server consumes it there — a replay or a
-    /// server-signed-but-missing ticket fails. See <c>docs/0.9.0-roadmap.md §1</c> in
-    /// pad-krapow-mu-sap-injector.
+    /// starts osu!.
     /// </summary>
-    /// <remarks>
-    /// We fail CLOSED on a reachable-but-angry server (401/403/5xx) because that's the exact shape
-    /// an attacker's man-in-the-middle produces; we fail OPEN on no response (timeout, DNS, offline)
-    /// so a transient outage doesn't lock legitimate players out. The server-side feature flag
-    /// <c>plugins:tomyum.handshake-flag:RequireLaunchToken</c> stays off until the whole fleet is on
-    /// a pkms that forwards the token — this class is additive during rollout.
-    /// </remarks>
     internal static class AnticheatClient
     {
 #if SOMTUM_DEV
@@ -56,14 +46,7 @@ namespace OsuPatcher.UI
                 request.Timeout = 5000;
                 request.ReadWriteTimeout = 5000;
                 request.KeepAlive = false;
-                // 0.9.4 §A — patcher attestation. Compute a per-request HMAC over
-                // (username|build_id|ts|nonce) with the embedded shared secret. The nonce
-                // is 16 bytes of CSPRNG (base64url-no-pad) and ts is UTC Unix seconds. The
-                // server-side gate (HandshakeFlagOptions.PatcherSecret) verifies constant-
-                // time and refuses requests outside the clock skew window. During rollout
-                // (RequirePatcherAttestation=false) the server logs mismatches as warns
-                // rather than refusing, so a stale Patcher still works; the flag flips
-                // once every live Patcher is 0.9.4+.
+                // Sign the request.
                 var reqTs = ((long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture);
                 var reqNonceBytes = new byte[16];
                 using (var rng = RandomNumberGenerator.Create()) rng.GetBytes(reqNonceBytes);
@@ -97,25 +80,18 @@ namespace OsuPatcher.UI
             }
             catch (WebException ex) when (ex.Response is HttpWebResponse resp)
             {
-                // Server answered unhappily (bad fields, no secret, service unavailable). Fail
-                // closed by returning null — the server will refuse the subsequent /anticheat/key
-                // if RequireLaunchToken is on, which is what we want.
                 System.Diagnostics.Debug.WriteLine("launch-token: HTTP " + (int)resp.StatusCode);
                 return null;
             }
             catch (Exception)
             {
-                // Timeout / DNS / offline: fail open; the server-side feature flag decides whether
-                // the subsequent /anticheat/key is accepted without a token.
                 return null;
             }
         }
 
         /// <summary>
         /// Reads osu!'s stored username from <c>osu!.&lt;WindowsUser&gt;.cfg</c> next to osu!.exe
-        /// (same source pkms uses in net.c :: read_osu_username). The two agree because the server
-        /// HMACs the ticket against the username provided here, and pkms sends that same username
-        /// in /anticheat/key.
+        /// (the same name the game logs in with).
         /// </summary>
         public static string ReadOsuUsername(string osuExePath)
         {

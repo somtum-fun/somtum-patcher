@@ -1,22 +1,5 @@
 <?xml version="1.0"?>
-<!--
-    0.9.4 §A patcher attestation: narrow-scope Obfuscar pass over patcher-ui.exe. We
-    only obfuscate the OsuPatcher.UI.Attestation namespace (the HMAC secret, its
-    two XOR-split blob classes, the reconstruct method). Everything else in the exe
-    - WPF entry points, XAML-referenced types, P/Invoke declarations - keeps its
-    original names so Microsoft's loader, XamlReader, and marshalling see what they
-    expect. Build-bundle.sh runs this after `dotnet build` and before staging.
-
-    Why not whole-assembly: Obfuscar's AnalyzeXaml does a reasonable job of keeping
-    MainWindow.* and friends alive, but it still can't reason about every reflection
-    path WPF takes (RelativeSource, DynamicResource, {Binding} with named sources).
-    Narrow-scope obfuscation of ONE namespace that has no XAML references and no
-    reflection consumers is risk-free. If we want wider coverage later, that's a
-    0.10.x change behind a separate ship.
-
-    AssemblySearchPath is populated at runtime by build-bundle.sh via `-var:` so the
-    config stays portable across .NET-Framework-reference-assembly layouts.
--->
+<!-- Obfuscar config, run by the build script after dotnet build. -->
 <Obfuscator>
   <!-- InPath / OutPath / RefAsmPath come from build-bundle.sh via -var: CLI flags.
        Do NOT redefine them here with $(InPath) etc. — Obfuscar's variable

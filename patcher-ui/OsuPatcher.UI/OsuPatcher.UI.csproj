@@ -25,10 +25,7 @@
     <Compile Include="LaunchTokenPipeServer.cs" />
     <Compile Include="MainWindow.xaml.cs" />
     <Compile Include="PatcherSecret.cs" />
-    <!-- 0.9.4 §A patcher attestation: these two .g.cs files are written by
-         scripts/gen_patcher_secret.py at the start of every build (fresh random XOR
-         mask per build). Both files MUST exist by the time this project compiles.
-         gitignored so a stale committed copy can't leak the per-build mask. -->
+    <!-- Generated at build time (gitignored). -->
     <Compile Include="PatcherSecretBlobA.g.cs" />
     <Compile Include="PatcherSecretBlobB.g.cs" />
     <Resource Include="Assets\logo.png" />
