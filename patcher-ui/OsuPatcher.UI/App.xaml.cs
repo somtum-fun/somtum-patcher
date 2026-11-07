@@ -9,6 +9,7 @@ namespace OsuPatcher.UI
     {
         private const string InjectOnlyPrefix = "--inject-only=";
         private const string LaunchAndInjectPrefix = "--launch-and-inject=";
+        private const string LaunchPrefix = "--launch=";
         private const string WithPatcherFlag = "--with-patcher";
 
         static App()
@@ -48,6 +49,7 @@ namespace OsuPatcher.UI
             ExtractNativePayload();
 
             string launchOsuPath = null;
+            string startOsuPath = null;
             bool withPatcher = false;
             foreach (var arg in e.Args)
             {
@@ -80,6 +82,8 @@ namespace OsuPatcher.UI
 
                 if (arg.StartsWith(LaunchAndInjectPrefix, StringComparison.Ordinal))
                     launchOsuPath = arg.Substring(LaunchAndInjectPrefix.Length);
+                else if (arg.StartsWith(LaunchPrefix, StringComparison.Ordinal))
+                    startOsuPath = arg.Substring(LaunchPrefix.Length);
                 else if (string.Equals(arg, WithPatcherFlag, StringComparison.Ordinal))
                     withPatcher = true;
             }
@@ -92,6 +96,33 @@ namespace OsuPatcher.UI
             //   a no-op: when the Launcher asks for the AC alone we still load the runtime so pkms
             //   gets attached — the Harmony patches it installs are the "patcher" part; staff can
             //   wire a tri-state later if there's demand to skip them.
+            // Headless --launch=<osu! path> [--with-patcher]: starts osu! the way the Play button
+            // does, for launchers. On Wine (or without the native injector) it is --launch-and-inject.
+            if (startOsuPath != null && InjectorCore.AcAvailable)
+            {
+                try
+                {
+                    using (var injector = InjectorCore.LaunchOsuWithInjector(startOsuPath, withPatcher))
+                    {
+                        if (!injector.WaitForExit((int)TimeSpan.FromMinutes(3).TotalMilliseconds))
+                        {
+                            Console.Error.WriteLine("error: timed out");
+                            Shutdown(1);
+                            return;
+                        }
+                        Shutdown(injector.ExitCode);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"error: {ex.Message}");
+                    Shutdown(1);
+                }
+                return;
+            }
+            if (startOsuPath != null)
+                launchOsuPath = startOsuPath;
+
             _ = withPatcher;
             if (launchOsuPath != null)
             {

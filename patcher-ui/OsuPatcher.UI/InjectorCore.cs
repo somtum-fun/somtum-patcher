@@ -86,21 +86,27 @@ namespace OsuPatcher.UI
             // and the patcher end up in one osu! process from one user action. Not on Wine though —
             // CreateRemoteThread(LoadLibraryW) deadlocks there, so Wine goes straight to the plain
             // launch path and relies on OsuPatcher.Runtime.Main.LoadPkmsIfPresent() to attach pkms.
-            var acInjector = IsWine() ? null : FindAcInjector();
-            if (acInjector != null)
-            {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = acInjector,
-                    Arguments = $"\"{osuExePath}\" --with-patcher",
-                    WorkingDirectory = Path.GetDirectoryName(acInjector),
-                    UseShellExecute = false,
-                };
-                ApplyLaunchToken(psi, osuExePath);
-                return Process.Start(psi) ?? throw new Exception("Failed to start the osu!somtum injector.");
-            }
+            if (AcAvailable)
+                return LaunchOsuWithInjector(osuExePath, withPatcher: true);
 
             return LaunchOsuPlain(osuExePath);
+        }
+
+        /// <summary>Starts pkms_injector.exe on osu!, with a launch token when the server gives one.</summary>
+        public static Process LaunchOsuWithInjector(string osuExePath, bool withPatcher)
+        {
+            RemoveRequireUpdateMarker(osuExePath);
+            var acInjector = FindAcInjector() ?? throw new Exception("The osu!somtum injector is missing.");
+            var psi = new ProcessStartInfo
+            {
+                FileName = acInjector,
+                Arguments = $"\"{osuExePath}\"" + (withPatcher ? " --with-patcher" : ""),
+                WorkingDirectory = Path.GetDirectoryName(acInjector),
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            ApplyLaunchToken(psi, osuExePath);
+            return Process.Start(psi) ?? throw new Exception("Failed to start the osu!somtum injector.");
         }
 
         /// <summary>
