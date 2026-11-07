@@ -19,6 +19,10 @@ namespace My.Company
         }
 
 
+        /// The patcher's in-game pp counter. Routes vanilla plays through ppy's rosu-pp (what the website
+        /// uses) and osu! Relax plays through akatsuki's osu_2019 (what the stable Relax leaderboard uses).
+        /// Function name kept for ABI compatibility with existing patcher-ui builds; the dispatch inside is
+        /// the only behaviour change.
         [DllImport(NativeLib, CallingConvention = CallingConvention.Cdecl, EntryPoint = "calculate_akatsuki_from_bytes")]
         public static extern CalculatePerformanceResult calculate_akatsuki_from_bytes(Sliceu8 beatmap_bytes, uint mode, uint mods, uint max_combo, float accuracy, uint miss_count, Optionu32 passed_objects);
 

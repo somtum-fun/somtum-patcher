@@ -41,7 +41,10 @@ done
 cargo build --release --target i686-pc-windows-gnu --manifest-path akatsuki-pp-ffi/Cargo.toml
 
 # --- 2. Runtime DLL ----------------------------------------------------------
-"$DOTNET" build patcher/OsuPatcher.Runtime/OsuPatcher.Runtime.csproj -c Release
+# Pass SomtumServer explicitly on the command line so a shell that forgot to
+# `export` it (or a parent build script's subshell-env quirk) still produces
+# the right target. Directory.Build.props defines SOMTUM_DEV iff this is 'dev'.
+"$DOTNET" build patcher/OsuPatcher.Runtime/OsuPatcher.Runtime.csproj -c Release -p:SomtumServer="${SomtumServer:-somtum}"
 
 # --- 3. Copy DLLs into the UI payload ----------------------------------------
 cp patcher/OsuPatcher.Runtime/bin/Release/OsuPatcher.Runtime.dll patcher-ui/OsuPatcher.UI/Payload/
@@ -49,7 +52,7 @@ cp patcher/OsuPatcher.Runtime/bin/Release/0Harmony.dll           patcher-ui/OsuP
 cp akatsuki-pp-ffi/target/i686-pc-windows-gnu/release/akatsuki_pp_ffi.dll patcher-ui/OsuPatcher.UI/Payload/
 
 # --- 4. UI (single patcher-ui.exe) -------------------------------------------
-"$DOTNET" build patcher-ui/OsuPatcher.UI/OsuPatcher.UI.csproj -c Release
+"$DOTNET" build patcher-ui/OsuPatcher.UI/OsuPatcher.UI.csproj -c Release -p:SomtumServer="${SomtumServer:-somtum}"
 
 echo
 echo "Done: patcher-ui/OsuPatcher.UI/bin/Release/patcher-ui.exe"

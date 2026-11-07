@@ -18,6 +18,7 @@
     <ApplicationDefinition Include="App.xaml" />
     <Page Include="MainWindow.xaml" />
     <Compile Include="App.xaml.cs" />
+    <Compile Include="AssemblyInfo.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="InjectorCore.cs" />
     <Compile Include="MainWindow.xaml.cs" />

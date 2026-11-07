@@ -300,6 +300,12 @@ namespace OsuPatcher.Runtime.Constants
 			Mods mods3 = mods;
 			if ((mods3 & mods2) <= Mods.None)
          */
+        // Pattern reflects the OBFUSCATED (live) IL, not de4dot's cleanup output: de4dot runs a
+        // dead-code pass that inlines the mods constant and collapses two local stores, so a
+        // pattern derived from the cleaned exe would miss on the real osu!.exe. Always derive
+        // patterns against osu!.exe directly, not osu!-cleaned.exe. Shape here: two back-to-back
+        // `(mods & relaxBit) > 0 || (mods & autopilotBit) > 0` checks the save path early-returns
+        // on.
         public static readonly OpCode[] PatchAutoSaveRelaxScores_Target = new[]
         {
             OpCodes.Ldarg_0,
@@ -342,6 +348,14 @@ namespace OsuPatcher.Runtime.Constants
          */
         public static readonly OpCode[] PatchRelaxComboBreak_Target = new[]
         {
+            // Extended from 9 to 15 opcodes to make this pattern uniquely identifying across
+            // reflection enumeration orders. The original 9-op shape (ldarg + ldfld + callvirt
+            // + ldc.i4.s + ble.s + the Ldsfld/Brtrue_S quartet) matched the right method in
+            // file order but reflection's GetRuntimeMethods didn't always visit types in the
+            // same order, so FindMethodBySignature sometimes picked a same-shape method
+            // elsewhere, the transpiler mangled the wrong IL, and the game crashed. The tail
+            // added here (Ldc_I4 → Call → Ldc_I4_0 → Ldc_I4_1 → Ldc_I4_7 → Call) is specific
+            // to the hit-processing call this patch is actually targeting.
             OpCodes.Ldarg_0,
             OpCodes.Ldfld,
             OpCodes.Callvirt,
@@ -350,7 +364,13 @@ namespace OsuPatcher.Runtime.Constants
             OpCodes.Ldsfld,
             OpCodes.Brtrue_S,
             OpCodes.Ldsfld,
-            OpCodes.Brtrue_S
+            OpCodes.Brtrue_S,
+            OpCodes.Ldc_I4,
+            OpCodes.Call,
+            OpCodes.Ldc_I4_0,
+            OpCodes.Ldc_I4_1,
+            OpCodes.Ldc_I4_7,
+            OpCodes.Call
         };
 
         public static readonly OpCode[] PlayerInitialize_Target = new[]
@@ -511,5 +531,6 @@ namespace OsuPatcher.Runtime.Constants
             OpCodes.Ldarg_0,
             OpCodes.Ldarg_0
         };
+
     }
 }

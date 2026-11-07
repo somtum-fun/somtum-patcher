@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://assets.somtum.fun/frontend/images/newlogo.png" alt="somtum logo" width="220"/>
+  <img src="https://osu.somtum.fun/images/layout/somtum-logo.png" alt="somtum logo" width="220"/>
   <h1>Somtum patcher</h1>
   <p>A single-exe injector that patches osu! to connect to <a href="https://somtum.fun">somtum.fun</a>.</p>
 </div>
